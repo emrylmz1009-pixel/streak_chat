@@ -1,0 +1,30 @@
+[
+  {
+    "id": "usr_t1_1",
+    "code": "AAA-111",
+    "name": "Anon Bird",
+    "streakFreezes": 0,
+    "badges": [
+      "7-day"
+    ],
+    "createdAt": "2026-08-19T19:34:44.832Z"
+  },
+  {
+    "id": "usr_t1_2",
+    "code": "BBB-222",
+    "name": "Anon Cat",
+    "streakFreezes": 0,
+    "badges": [
+      "7-day"
+    ],
+    "createdAt": "2026-08-19T19:34:44.834Z"
+  },
+  {
+    "id": "usr_mv2wwgka4",
+    "code": "ICH-845",
+    "name": "Dost Koala",
+    "streakFreezes": 2,
+    "badges": [],
+    "createdAt": "2026-08-19T19:35:21.142Z"
+  }
+]

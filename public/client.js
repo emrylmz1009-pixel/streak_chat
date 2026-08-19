@@ -1,0 +1,630 @@
+let socket;
+let currentUser = null;
+let activeChat = null;
+let typingTimeout = null;
+let countdownInterval = null;
+let simulatedMediaData = null;
+
+// Initialize App
+document.addEventListener('DOMContentLoaded', async () => {
+  await initUser();
+  initSocket();
+  await loadChats();
+});
+
+// User Setup
+async function initUser() {
+  const storedUser = localStorage.getItem('streak_chat_user');
+  if (storedUser) {
+    try {
+      currentUser = JSON.parse(storedUser);
+      // Fetch fresh data from backend
+      await refreshUserProfile();
+    } catch {
+      await createNewUser();
+    }
+  } else {
+    await createNewUser();
+  }
+}
+
+async function createNewUser() {
+  try {
+    const res = await fetch('/api/users/create', { method: 'POST' });
+    const user = await res.json();
+    currentUser = user;
+    localStorage.setItem('streak_chat_user', JSON.stringify(user));
+    renderProfile();
+  } catch (err) {
+    console.error('Error creating user:', err);
+  }
+}
+
+async function refreshUserProfile() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch(`/api/users/${currentUser.id}`);
+    if (res.ok) {
+      const user = await res.json();
+      currentUser = user;
+      localStorage.setItem('streak_chat_user', JSON.stringify(user));
+      renderProfile();
+    } else {
+      // User not found in DB (e.g. db was reset)
+      await createNewUser();
+    }
+  } catch (err) {
+    console.error('Error refreshing profile:', err);
+    renderProfile(); // Fallback to cached
+  }
+}
+
+function renderProfile() {
+  if (!currentUser) return;
+  document.getElementById('user-name').innerText = currentUser.name;
+  document.getElementById('user-avatar').innerText = currentUser.name.split(' ').map(n => n[0]).join('');
+  document.getElementById('user-code-display').innerText = currentUser.code;
+  document.getElementById('user-code-header').innerText = currentUser.code;
+  document.getElementById('user-freezes-header').innerText = currentUser.streakFreezes;
+  document.getElementById('active-user-freezes').innerText = currentUser.streakFreezes;
+  document.getElementById('profile-summary').classList.remove('hidden');
+
+  // Render Badges
+  const badgesContainer = document.getElementById('user-badges');
+  badgesContainer.innerHTML = '';
+  if (currentUser.badges && currentUser.badges.length > 0) {
+    currentUser.badges.forEach(badge => {
+      const badgeElem = document.createElement('span');
+      badgeElem.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-indigo-950 text-indigo-300 border border-indigo-900 flex items-center gap-1';
+      
+      let badgeLabel = 'Rozet';
+      if (badge === '7-day') badgeLabel = '7 Gün 🚀';
+      else if (badge === '30-day') badgeLabel = '30 Gün 🛡️';
+      else if (badge === '100-day') badgeLabel = '100 Gün 👑';
+      
+      badgeElem.innerHTML = badgeLabel;
+      badgesContainer.appendChild(badgeElem);
+    });
+  } else {
+    badgesContainer.innerHTML = '<span class="text-xs text-slate-500 italic">Henüz rozet kazanılmadı</span>';
+  }
+}
+
+// Socket.io Setup
+function initSocket() {
+  socket = io();
+
+  socket.on('connect', () => {
+    console.log('Connected to server');
+  });
+
+  socket.on('message', (msg) => {
+    if (activeChat && msg.chatId === activeChat.id) {
+      appendMessage(msg);
+      scrollToBottom();
+    }
+  });
+
+  socket.on('streak-update', async (data) => {
+    // If it belongs to our active chat, update activeChat and refresh view
+    if (activeChat && data.chat.id === activeChat.id) {
+      activeChat = {
+        ...activeChat,
+        ...data.chat
+      };
+      
+      // Update the side panel widgets
+      updateStreakPanel();
+
+      // If user data was updated (e.g. badges or freezes changed), refresh profile
+      if (data.users) {
+        if (data.users.u1 && data.users.u1.id === currentUser.id) {
+          currentUser = data.users.u1;
+        } else if (data.users.u2 && data.users.u2.id === currentUser.id) {
+          currentUser = data.users.u2;
+        }
+        localStorage.setItem('streak_chat_user', JSON.stringify(currentUser));
+        renderProfile();
+      } else {
+        await refreshUserProfile();
+      }
+    }
+  });
+
+  socket.on('typing', (data) => {
+    if (activeChat && data.userId !== currentUser.id) {
+      const typingInd = document.getElementById('typing-indicator');
+      typingInd.innerText = `${data.name} yazıyor...`;
+      typingInd.classList.remove('hidden');
+      
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        typingInd.classList.add('hidden');
+      }, 3000);
+    }
+  });
+
+  socket.on('match-created', (data) => {
+    if (data.user1Id === currentUser.id || data.user2Id === currentUser.id) {
+      loadChats();
+    }
+  });
+
+  socket.on('chat-list-updated', () => {
+    loadChats();
+  });
+}
+
+// Fetch and Render Chats Sidebar
+async function loadChats() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch(`/api/chats/${currentUser.id}`);
+    const chats = await res.json();
+    const chatList = document.getElementById('chat-list');
+    chatList.innerHTML = '';
+
+    if (chats.length === 0) {
+      chatList.innerHTML = '<div class="text-slate-500 text-sm italic p-4 text-center">Aktif eşleşme bulunamadı</div>';
+      return;
+    }
+
+    chats.forEach(chat => {
+      const isSelected = activeChat && activeChat.id === chat.id;
+      const item = document.createElement('div');
+      item.className = `p-3 rounded-lg cursor-pointer transition-colors flex justify-between items-center ${
+        isSelected ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/40 text-slate-300'
+      }`;
+      item.onclick = () => selectChat(chat.id);
+
+      const hasUnread = false; // Placeholder
+
+      const hasStreak = chat.streakCount > 0;
+
+      item.innerHTML = `
+        <div class="flex items-center gap-2.5 overflow-hidden">
+          <div class="w-8 h-8 rounded-full bg-slate-700 text-white font-bold text-xs flex items-center justify-center shrink-0">
+            ${chat.partnerName.split(' ').map(n => n[0]).join('')}
+          </div>
+          <div class="overflow-hidden">
+            <div class="font-semibold text-sm truncate">${chat.partnerName}</div>
+            <div class="text-xs text-slate-400 truncate">${chat.lastMessage}</div>
+          </div>
+        </div>
+        <div class="flex flex-col items-end shrink-0 ml-2">
+          ${hasStreak ? `
+            <div class="flex items-center gap-0.5 text-xs text-orange-500 font-extrabold bg-orange-950/40 border border-orange-900/30 px-1.5 py-0.5 rounded-full">
+              <i class="fa-solid fa-fire animate-pulse text-[10px]"></i> ${chat.streakCount}
+            </div>
+          ` : `
+            <div class="text-[10px] text-slate-500 border border-slate-800 px-1.5 py-0.5 rounded-full">0 🔥</div>
+          `}
+          <span class="text-[9px] text-slate-500 mt-1">${formatTimeAgo(chat.lastMessageTime)}</span>
+        </div>
+      `;
+      chatList.appendChild(item);
+    });
+  } catch (err) {
+    console.error('Error loading chats:', err);
+  }
+}
+
+// Select a Chat and Open Room
+async function selectChat(chatId) {
+  if (countdownInterval) clearInterval(countdownInterval);
+
+  try {
+    const chatListRes = await fetch(`/api/chats/${currentUser.id}`);
+    const chats = await chatListRes.json();
+    const chatObj = chats.find(c => c.id === chatId);
+    if (!chatObj) return;
+
+    activeChat = chatObj;
+
+    // Join room
+    socket.emit('join-chat', { chatId });
+
+    // Show Chat UI
+    document.getElementById('chat-empty-state').classList.add('hidden');
+    document.getElementById('chat-active-view').classList.remove('hidden');
+    
+    // Header details
+    document.getElementById('partner-name').innerText = activeChat.partnerName;
+    document.getElementById('partner-code-sub').innerText = `Kod: ${activeChat.partnerCode}`;
+    document.getElementById('partner-avatar').innerText = activeChat.partnerName.split(' ').map(n => n[0]).join('');
+
+    // Fetch Messages
+    const msgRes = await fetch(`/api/chats/${chatId}/messages`);
+    const messages = await msgRes.json();
+    
+    const messagesContainer = document.getElementById('messages-container');
+    messagesContainer.innerHTML = '';
+    messages.forEach(msg => appendMessage(msg));
+    scrollToBottom();
+
+    // Show Right Sidebar Info
+    document.getElementById('chat-info-panel').classList.remove('hidden');
+
+    // Update streak widget
+    updateStreakPanel();
+
+    // Start countdown
+    startCountdown();
+
+    // Highlight selected item in sidebar
+    loadChats();
+  } catch (err) {
+    console.error('Error selecting chat:', err);
+  }
+}
+
+// Start match via code submission
+async function startMatch() {
+  const matchCodeInput = document.getElementById('match-code-input');
+  const code = matchCodeInput.value.trim();
+  const errorEl = document.getElementById('match-error');
+  errorEl.classList.add('hidden');
+
+  if (!code) {
+    errorEl.innerText = 'Lütfen geçerli bir kod girin.';
+    errorEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const res = await fetch('/api/match', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: currentUser.id, matchCode: code })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      errorEl.innerText = data.error || 'Eşleşme başlatılamadı.';
+      errorEl.classList.remove('hidden');
+      return;
+    }
+
+    matchCodeInput.value = '';
+    await selectChat(data.id);
+  } catch (err) {
+    errorEl.innerText = 'Bağlantı hatası oluştu.';
+    errorEl.classList.remove('hidden');
+    console.error('Error in matching:', err);
+  }
+}
+
+// Send Message
+function sendMessage(event) {
+  event.preventDefault();
+  if (!activeChat || !currentUser) return;
+
+  const textInput = document.getElementById('message-text-input');
+  const text = textInput.value.trim();
+  
+  if (!text && !simulatedMediaData) return;
+
+  const messageData = {
+    chatId: activeChat.id,
+    senderId: currentUser.id,
+    text: text || '📸 Fotoğraf gönderdi',
+    mediaUrl: simulatedMediaData
+  };
+
+  socket.emit('send-message', messageData);
+  
+  textInput.value = '';
+  clearSimulatedMedia();
+  
+  // Stop typing indicator on send
+  socket.emit('typing', { chatId: activeChat.id, userId: currentUser.id, isTyping: false, name: currentUser.name });
+}
+
+// Emit typing indicator
+function emitTyping() {
+  if (!activeChat || !currentUser) return;
+  socket.emit('typing', {
+    chatId: activeChat.id,
+    userId: currentUser.id,
+    isTyping: true,
+    name: currentUser.name
+  });
+}
+
+// Render Single Message
+function appendMessage(msg) {
+  const container = document.getElementById('messages-container');
+  const msgEl = document.createElement('div');
+
+  if (msg.isSystem) {
+    msgEl.className = 'flex justify-center my-3';
+    msgEl.innerHTML = `
+      <div class="bg-slate-900 border border-slate-800 text-slate-350 text-xs px-4 py-2 rounded-xl text-center max-w-md shadow-sm">
+        <i class="fa-solid fa-circle-info mr-1 text-indigo-400"></i> ${msg.text.replace(/\n/g, '<br>')}
+      </div>
+    `;
+  } else {
+    const isMe = msg.senderId === currentUser.id;
+    msgEl.className = `flex ${isMe ? 'justify-end' : 'justify-start'} mb-3`;
+    
+    let bubbleClass = isMe 
+      ? 'bg-indigo-650 text-white rounded-br-none border border-indigo-600'
+      : 'bg-slate-900 text-slate-100 rounded-bl-none border border-slate-800';
+
+    let mediaHtml = '';
+    if (msg.mediaUrl) {
+      mediaHtml = `
+        <div class="mb-2 max-w-xs overflow-hidden rounded-lg">
+          <img src="${msg.mediaUrl}" alt="Media attachment" class="w-full object-cover">
+        </div>
+      `;
+    }
+
+    msgEl.innerHTML = `
+      <div class="max-w-[70%]">
+        <div class="px-4 py-2.5 rounded-2xl text-sm shadow-md ${bubbleClass}">
+          ${mediaHtml}
+          <div>${escapeHTML(msg.text)}</div>
+        </div>
+        <div class="text-[9px] text-slate-500 mt-1 ${isMe ? 'text-right' : 'text-left'}">
+          ${formatTime(msg.timestamp)}
+        </div>
+      </div>
+    `;
+  }
+
+  container.appendChild(msgEl);
+}
+
+// Update Streak Details widgets
+function updateStreakPanel() {
+  if (!activeChat) return;
+
+  const countDisplay = document.getElementById('streak-count-display');
+  const flame = document.getElementById('streak-flame');
+  const statusText = document.getElementById('streak-status-text');
+  
+  const userMessagedFlag = document.getElementById('user-messaged-flag');
+  const partnerMessagedFlag = document.getElementById('partner-messaged-flag');
+
+  const streak = activeChat.streakCount;
+  countDisplay.innerText = streak;
+
+  // Visual state for flame
+  if (streak > 0) {
+    flame.className = "fa-solid fa-fire text-orange-500 text-6xl animate-bounce";
+  } else {
+    flame.className = "fa-solid fa-fire text-slate-700 text-6xl opacity-50";
+  }
+
+  // Daily Messaged Checkboxes
+  const isUser1 = activeChat.user1Id === currentUser.id;
+  const myMessaged = isUser1 ? activeChat.user1MessagedToday : activeChat.user2MessagedToday;
+  const partnerMessaged = isUser1 ? activeChat.user2MessagedToday : activeChat.user1MessagedToday;
+
+  if (myMessaged) {
+    userMessagedFlag.innerText = 'EVET';
+    userMessagedFlag.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-900/50';
+  } else {
+    userMessagedFlag.innerText = 'YOK';
+    userMessagedFlag.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-red-950 text-red-400 border border-red-900/50';
+  }
+
+  if (partnerMessaged) {
+    partnerMessagedFlag.innerText = 'EVET';
+    partnerMessagedFlag.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-emerald-950 text-emerald-400 border border-emerald-900/50';
+  } else {
+    partnerMessagedFlag.innerText = 'YOK';
+    partnerMessagedFlag.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-red-950 text-red-400 border border-red-900/50';
+  }
+
+  // Status Summary Text
+  if (myMessaged && partnerMessaged) {
+    statusText.innerText = 'Bugün ikiniz de mesaj attınız! Seri güvende. 🎉';
+  } else if (myMessaged) {
+    statusText.innerText = 'Siz yazdınız, partnerinizin mesaj atması bekleniyor. ⏳';
+  } else if (partnerMessaged) {
+    statusText.innerText = 'Partneriniz yazdı, seriyi korumak için bir mesaj gönderin! 🚨';
+  } else {
+    statusText.innerText = 'Bugün henüz kimse mesaj atmadı. Yazışmaya başlayın!';
+  }
+}
+
+// Start Countdown Clock for Cycle duration
+function startCountdown() {
+  if (countdownInterval) clearInterval(countdownInterval);
+
+  const updateCountdown = () => {
+    if (!activeChat) return;
+
+    const cycleStart = new Date(activeChat.cycleStartDate);
+    const durationMs = 24 * 60 * 60 * 1000;
+    const endMs = cycleStart.getTime() + durationMs;
+    const diff = endMs - Date.now();
+
+    const timeLeftText = document.getElementById('cycle-time-left');
+    const progressBar = document.getElementById('cycle-progress-bar');
+
+    if (diff <= 0) {
+      timeLeftText.innerText = "Döngü tamamlandı! Hesaplanıyor...";
+      progressBar.style.width = '0%';
+      return;
+    }
+
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    const seconds = Math.floor((diff % (1000 * 60)) / 1000);
+
+    const pad = (n) => n.toString().padStart(2, '0');
+    timeLeftText.innerText = `${pad(hours)}:${pad(minutes)}:${pad(seconds)} kaldı`;
+
+    // Progress Bar percentage
+    const percent = Math.max(0, Math.min(100, (diff / durationMs) * 100));
+    progressBar.style.width = `${percent}%`;
+
+    // Color progress bar depending on urgency
+    if (percent < 15) {
+      progressBar.className = 'bg-red-500 h-full transition-all duration-1000';
+    } else if (percent < 40) {
+      progressBar.className = 'bg-orange-500 h-full transition-all duration-1000';
+    } else {
+      progressBar.className = 'bg-indigo-650 h-full transition-all duration-1000';
+    }
+  };
+
+  updateCountdown();
+  countdownInterval = setInterval(updateCountdown, 1000);
+}
+
+// --- Debug Panel Actions ---
+
+function toggleDebugPanel() {
+  const panel = document.getElementById('debug-panel-content');
+  const chevron = document.getElementById('debug-chevron');
+  const isHidden = panel.classList.contains('hidden');
+  
+  if (isHidden) {
+    panel.classList.remove('hidden');
+    chevron.className = 'fa-solid fa-chevron-up';
+  } else {
+    panel.classList.add('hidden');
+    chevron.className = 'fa-solid fa-chevron-down';
+  }
+}
+
+async function triggerTimeWarp(hours) {
+  if (!activeChat) return alert('Lütfen önce bir sohbet seçin.');
+  try {
+    const res = await fetch('/api/debug/time-warp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: activeChat.id, hours })
+    });
+    const data = await res.json();
+    if (data.success) {
+      activeChat = { ...activeChat, ...data.chat };
+      updateStreakPanel();
+      startCountdown();
+      await loadChats();
+      // Reload messages list
+      selectChat(activeChat.id);
+    }
+  } catch (err) {
+    console.error('Error time warping:', err);
+  }
+}
+
+async function grantFreezeDebug() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch('/api/debug/grant-freeze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: currentUser.id })
+    });
+    const data = await res.json();
+    if (data.success) {
+      await refreshUserProfile();
+    }
+  } catch (err) {
+    console.error('Error granting freeze:', err);
+  }
+}
+
+async function simulatePartnerMessage() {
+  if (!activeChat) return alert('Lütfen önce bir sohbet seçin.');
+  const isUser1 = activeChat.user1Id === currentUser.id;
+  const partnerId = isUser1 ? activeChat.user2Id : activeChat.user1Id;
+  const partnerName = activeChat.partnerName;
+
+  // Send message event on behalf of partner
+  socket.emit('send-message', {
+    chatId: activeChat.id,
+    senderId: partnerId,
+    text: `[SİMÜLASYON] Merhaba! Ben ${partnerName}. Serimizi sürdürmek için yazdım.`
+  });
+}
+
+async function resetDbDebug() {
+  if (!confirm('Tüm veritabanı sıfırlanacak. Emin misiniz?')) return;
+  try {
+    const res = await fetch('/api/debug/reset', { method: 'POST' });
+    if (res.ok) {
+      localStorage.clear();
+      alert('Sistem başarıyla sıfırlandı. Sayfa yenileniyor...');
+      window.location.reload();
+    }
+  } catch (err) {
+    console.error('Error resetting database:', err);
+  }
+}
+
+// Simulated Media Uploads
+function triggerSimulatedMedia() {
+  // Use a placeholder public image for demonstration
+  simulatedMediaData = 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=300&auto=format&fit=crop&q=60';
+  document.getElementById('media-preview').classList.remove('hidden');
+}
+
+function clearSimulatedMedia() {
+  simulatedMediaData = null;
+  document.getElementById('media-preview').classList.add('hidden');
+}
+
+// Side Panel toggle on Mobile
+function toggleInfoPanel() {
+  const panel = document.getElementById('chat-info-panel');
+  if (panel.classList.contains('hidden')) {
+    panel.classList.remove('hidden');
+  } else {
+    panel.classList.add('hidden');
+  }
+}
+
+// Copy Code
+function copyMyCode() {
+  if (!currentUser) return;
+  navigator.clipboard.writeText(currentUser.code).then(() => {
+    alert('Kod kopyalandı: ' + currentUser.code);
+  }).catch(err => {
+    console.error('Could not copy code:', err);
+  });
+}
+
+// --- Formatting Helpers ---
+
+function formatTimeAgo(isoString) {
+  const date = new Date(isoString);
+  const diff = Date.now() - date.getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'Şimdi';
+  if (mins < 60) return `${mins} dk önce`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours} sa önce`;
+  const days = Math.floor(hours / 24);
+  return `${days} gün önce`;
+}
+
+function formatTime(isoString) {
+  const date = new Date(isoString);
+  const h = date.getHours().toString().padStart(2, '0');
+  const m = date.getMinutes().toString().padStart(2, '0');
+  return `${h}:${m}`;
+}
+
+function escapeHTML(str) {
+  return str.replace(/[&<>'"]/g, 
+    tag => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      "'": '&#39;',
+      '"': '&quot;'
+    }[tag] || tag)
+  );
+}
+
+function scrollToBottom() {
+  const container = document.getElementById('messages-container');
+  container.scrollTop = container.scrollHeight;
+}

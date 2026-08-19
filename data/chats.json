@@ -1,0 +1,12 @@
+[
+  {
+    "id": "chat_t1",
+    "user1Id": "usr_t1_1",
+    "user2Id": "usr_t1_2",
+    "streakCount": 0,
+    "cycleStartDate": "2026-08-19T19:34:44.871Z",
+    "user1MessagedToday": false,
+    "user2MessagedToday": false,
+    "createdAt": "2026-08-19T19:34:44.839Z"
+  }
+]
