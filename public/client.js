@@ -202,6 +202,8 @@ function renderProfile() {
   document.getElementById('user-code-display').innerText = currentUser.code;
   document.getElementById('user-code-header').innerText = currentUser.code;
   document.getElementById('user-freezes-header').innerText = currentUser.streakFreezes;
+  document.getElementById('mobile-code-val').innerText = currentUser.code;
+  document.getElementById('mobile-freezes-val').innerText = currentUser.streakFreezes;
   document.getElementById('profile-summary').classList.remove('hidden');
 
   // Render Badges

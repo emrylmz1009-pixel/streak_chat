@@ -25,7 +25,7 @@
     }
   </style>
 </head>
-<body class="bg-slate-950 text-slate-100 h-screen overflow-hidden flex flex-col font-sans">
+<body class="bg-slate-950 text-slate-100 h-screen h-[100dvh] overflow-hidden flex flex-col font-sans">
 
   <!-- Auth Screen (Login / Register Screen) -->
   <div id="auth-screen" class="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-center z-50 hidden">
@@ -92,7 +92,7 @@
   </div>
 
   <!-- Header -->
-  <header class="bg-slate-900 border-b border-slate-800 px-6 py-4 flex justify-between items-center shrink-0">
+  <header class="hidden md:flex bg-slate-900 border-b border-slate-800 px-6 py-4 justify-between items-center shrink-0">
     <div class="flex items-center gap-3">
       <div class="bg-indigo-600 p-2 rounded-lg text-white">
         <i class="fa-solid fa-fire-flame-curved text-xl animate-pulse"></i>
@@ -147,6 +147,19 @@
               </div>
               <div class="text-xs text-slate-400">Sizin Profiliniz</div>
             </div>
+          </div>
+        </div>
+        
+        <!-- User Info Details for Mobile -->
+        <div class="flex gap-2 mt-3 text-xs md:hidden">
+          <div class="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800 flex justify-between items-center grow font-mono">
+            <span class="text-slate-400">Kod: <span id="mobile-code-val" class="font-bold text-indigo-400">---</span></span>
+            <button onclick="copyMyCode()" class="text-slate-400 hover:text-white ml-2">
+              <i class="fa-regular fa-copy"></i>
+            </button>
+          </div>
+          <div class="bg-sky-950/30 border border-sky-900/40 px-2.5 py-1.5 rounded text-sky-400 font-bold flex items-center gap-1 shrink-0">
+            <i class="fa-solid fa-snowflake"></i> <span id="mobile-freezes-val">0</span>
           </div>
         </div>
         
