@@ -132,9 +132,8 @@
       content: "";
       position: absolute;
       inset: 0;
-      background-image: url('https://user-images.githubusercontent.com/15075759/28719144-86dc0f70-73b1-11e7-911d-60d70fcded21.png');
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'><g fill='%23ffffff' fill-opacity='0.04'><path d='M10 10a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4h-6a4 4 0 0 1-4-4zm25 15h10v2h-10zm0 4h6v2h-6zm5 15a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4h-6a4 4 0 0 1-4-4zM15 45c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4v4H15z'/></g></svg>");
       background-repeat: repeat;
-      opacity: 0.05;
       z-index: -1;
       pointer-events: none;
     }
@@ -142,8 +141,7 @@
       background-color: #efeae2 !important;
     }
     body.light-theme #messages-container::before {
-      opacity: 0.35;
-      filter: contrast(0.85);
+      background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='80' height='80' viewBox='0 0 80 80'><g fill='%23000000' fill-opacity='0.04'><path d='M10 10a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4h-6a4 4 0 0 1-4-4zm25 15h10v2h-10zm0 4h6v2h-6zm5 15a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v4a4 4 0 0 1-4 4h-6a4 4 0 0 1-4-4zM15 45c0-2.2 1.8-4 4-4h4c2.2 0 4 1.8 4 4v4H15z'/></g></svg>") !important;
     }
 
     /* WhatsApp Style Bubbles (Dynamic Light/Dark) */
@@ -376,7 +374,7 @@
     </section>
 
     <!-- Center: Chat Area -->
-    <section id="chat-panel" class="flex-grow bg-slate-950 flex flex-col relative hidden md:flex">
+    <section id="chat-panel" class="flex-grow w-full md:w-auto overflow-hidden bg-slate-950 flex flex-col relative hidden md:flex">
       
       <!-- Empty State -->
       <div id="chat-empty-state" class="absolute inset-0 flex flex-col items-center justify-center p-8 text-center bg-slate-950 z-10">
@@ -466,7 +464,7 @@
 
         <!-- Chat Input Form -->
         <form id="chat-input-form" onsubmit="sendMessage(event)" 
-              class="p-2.5 bg-slate-900 border-t border-slate-800 flex flex-col gap-1.5 shrink-0" 
+              class="p-2 w-full bg-slate-900 border-t border-slate-800 flex flex-col gap-1 shrink-0 overflow-hidden box-border" 
               style="padding-bottom: calc(env(safe-area-inset-bottom) + 8px);">
           
           <!-- Hidden Inputs for actual media/doc selection -->
@@ -488,33 +486,33 @@
             <!-- Populated dynamically when file/doc is chosen -->
           </div>
 
-          <div class="flex gap-2 items-center w-full bg-slate-950/65 border border-slate-800/80 rounded-full px-3.5 py-1 focus-within:border-indigo-500 transition-colors">
+          <div class="flex gap-1 items-center w-full min-w-0 bg-slate-950/65 border border-slate-800/80 rounded-full px-2 py-0.5 focus-within:border-indigo-500 transition-colors overflow-hidden">
             <!-- Actual Image Share -->
-            <button type="button" onclick="document.getElementById('media-file-input').click()" class="text-slate-400 hover:text-white p-1 transition" title="Fotoğraf Gönder">
-              <i class="fa-regular fa-image text-lg"></i>
+            <button type="button" onclick="document.getElementById('media-file-input').click()" class="text-slate-400 hover:text-white p-1 transition shrink-0" title="Fotoğraf Gönder">
+              <i class="fa-regular fa-image text-base"></i>
             </button>
 
             <!-- Document/File Share -->
-            <button type="button" onclick="document.getElementById('doc-file-input').click()" class="text-slate-400 hover:text-white p-1 transition" title="Dosya Gönder">
-              <i class="fa-solid fa-paperclip text-lg"></i>
+            <button type="button" onclick="document.getElementById('doc-file-input').click()" class="text-slate-400 hover:text-white p-1 transition shrink-0" title="Dosya Gönder">
+              <i class="fa-solid fa-paperclip text-base"></i>
             </button>
             
             <!-- Voice Message Recorder Button -->
-            <button type="button" id="voice-record-btn" onclick="toggleVoiceRecord()" class="text-slate-400 hover:text-red-500 p-1 transition" title="Sesli Not Gönder">
-              <i class="fa-solid fa-microphone text-lg" id="voice-mic-icon"></i>
+            <button type="button" id="voice-record-btn" onclick="toggleVoiceRecord()" class="text-slate-400 hover:text-red-500 p-1 transition shrink-0" title="Sesli Not Gönder">
+              <i class="fa-solid fa-microphone text-base" id="voice-mic-icon"></i>
             </button>
 
             <!-- View-Once 1x Toggle Button -->
-            <button type="button" id="view-once-toggle-btn" onclick="toggleViewOnceMode()" class="text-slate-500 hover:text-yellow-500 p-1 transition-colors" title="Tek Seferlik Görsel">
-              <i class="fa-solid fa-1 text-sm border border-slate-500 rounded-full px-1 font-bold" id="view-once-btn-icon"></i>
+            <button type="button" id="view-once-toggle-btn" onclick="toggleViewOnceMode()" class="text-slate-500 hover:text-yellow-500 p-1 transition-colors shrink-0" title="Tek Seferlik Görsel">
+              <i class="fa-solid fa-1 text-xs border border-slate-500 rounded-full px-1 font-bold" id="view-once-btn-icon"></i>
             </button>
             
             <!-- Text Input -->
             <input type="text" id="message-text-input" placeholder="Bir mesaj yazın..." oninput="emitTyping()"
-                   class="bg-transparent border-0 text-white text-sm focus:outline-none grow px-2 py-2.5 placeholder:text-slate-500">
+                   class="bg-transparent border-0 text-white text-sm focus:outline-none flex-1 min-w-0 px-1 py-1.5 placeholder:text-slate-500">
             
-            <button type="submit" id="send-msg-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white p-2 rounded-full w-9.5 h-9.5 flex items-center justify-center transition shrink-0">
-              <i class="fa-solid fa-paper-plane text-sm"></i>
+            <button type="submit" id="send-msg-btn" class="bg-indigo-650 hover:bg-indigo-700 text-white rounded-full w-8 h-8 flex items-center justify-center transition shrink-0">
+              <i class="fa-solid fa-paper-plane text-xs"></i>
             </button>
           </div>
         </form>

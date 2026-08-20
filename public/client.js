@@ -627,8 +627,8 @@ function initiateEditMessage(msgId, originalText) {
 
   // Show visual cue that we are editing
   const sendBtn = document.getElementById('send-msg-btn');
-  sendBtn.innerHTML = '<i class="fa-solid fa-check text-sm"></i>';
-  sendBtn.className = 'bg-orange-650 hover:bg-orange-700 text-white p-2 rounded-full w-9.5 h-9.5 flex items-center justify-center transition shrink-0';
+  sendBtn.innerHTML = '<i class="fa-solid fa-check text-xs"></i>';
+  sendBtn.className = 'bg-orange-650 hover:bg-orange-700 text-white p-2 rounded-full w-8 h-8 flex items-center justify-center transition shrink-0';
 }
 
 function cancelEditMode() {
@@ -637,8 +637,8 @@ function cancelEditMode() {
   textInput.value = '';
   
   const sendBtn = document.getElementById('send-msg-btn');
-  sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane text-sm"></i>';
-  sendBtn.className = 'bg-indigo-650 hover:bg-indigo-700 text-white p-2 rounded-full w-9.5 h-9.5 flex items-center justify-center transition shrink-0';
+  sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane text-xs"></i>';
+  sendBtn.className = 'bg-indigo-650 hover:bg-indigo-700 text-white p-2 rounded-full w-8 h-8 flex items-center justify-center transition shrink-0';
 }
 
 // Voice Recorder Functions
