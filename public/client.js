@@ -19,6 +19,7 @@ let viewOnceActive = false;
 let editingMessageId = null;
 let quotedMessage = null;
 let onlinePartners = new Set(); // set of online userIds
+let sidebarHidden = false;
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
@@ -477,6 +478,7 @@ async function selectChat(chatId) {
     document.getElementById('chat-info-panel').classList.remove('hidden');
     updateStreakPanel();
     startCountdown();
+    sidebarHidden = true;
     navigateMobile('chat');
   } catch (err) {
     console.error('Error selecting chat:', err);
@@ -675,8 +677,8 @@ function initiateEditMessage(msgId, originalText) {
 
   // Show visual cue that we are editing
   const sendBtn = document.getElementById('send-msg-btn');
-  sendBtn.innerHTML = 'Kaydet <i class="fa-solid fa-check"></i>';
-  sendBtn.className = 'bg-orange-600 hover:bg-orange-700 text-white p-2 px-4 rounded text-sm font-semibold transition flex items-center gap-1';
+  sendBtn.innerHTML = '<i class="fa-solid fa-check text-sm"></i>';
+  sendBtn.className = 'bg-orange-650 hover:bg-orange-700 text-white p-2 rounded-full w-9.5 h-9.5 flex items-center justify-center transition shrink-0';
 }
 
 function cancelEditMode() {
@@ -685,8 +687,8 @@ function cancelEditMode() {
   textInput.value = '';
   
   const sendBtn = document.getElementById('send-msg-btn');
-  sendBtn.innerHTML = '<span class="hidden md:inline">Gönder</span> <i class="fa-solid fa-paper-plane"></i>';
-  sendBtn.className = 'bg-indigo-600 hover:bg-indigo-700 text-white p-2 px-4 rounded text-sm font-semibold transition flex items-center gap-1';
+  sendBtn.innerHTML = '<i class="fa-solid fa-paper-plane text-sm"></i>';
+  sendBtn.className = 'bg-indigo-650 hover:bg-indigo-700 text-white p-2 rounded-full w-9.5 h-9.5 flex items-center justify-center transition shrink-0';
 }
 
 // Voice Recorder Functions
@@ -1143,8 +1145,13 @@ function updateMobileView() {
   const infoPanel = document.getElementById('chat-info-panel');
 
   if (!isMobile) {
-    sidebar.classList.remove('hidden', 'w-full');
-    sidebar.classList.add('flex', 'w-80');
+    if (sidebarHidden) {
+      sidebar.classList.add('hidden');
+      sidebar.classList.remove('flex', 'w-80');
+    } else {
+      sidebar.classList.remove('hidden', 'w-full');
+      sidebar.classList.add('flex', 'w-80');
+    }
     chatPanel.classList.remove('hidden');
     chatPanel.classList.add('flex');
     
@@ -1171,13 +1178,20 @@ function updateMobileView() {
     infoPanel.classList.add('hidden');
     infoPanel.classList.remove('flex');
   } else if (currentMobileScreen === 'chat') {
-    sidebar.classList.add('hidden');
-    sidebar.classList.remove('flex');
-    if (activeChat) {
-      chatPanel.classList.remove('hidden');
-      chatPanel.classList.add('flex');
+    if (sidebarHidden) {
+      sidebar.classList.add('hidden');
+      sidebar.classList.remove('flex');
+      if (activeChat) {
+        chatPanel.classList.remove('hidden');
+        chatPanel.classList.add('flex');
+      } else {
+        currentMobileScreen = 'list';
+        sidebar.classList.remove('hidden');
+        sidebar.classList.add('flex');
+        chatPanel.classList.add('hidden');
+        chatPanel.classList.remove('flex');
+      }
     } else {
-      currentMobileScreen = 'list';
       sidebar.classList.remove('hidden');
       sidebar.classList.add('flex');
       chatPanel.classList.add('hidden');
@@ -1536,5 +1550,10 @@ function setLayoutMode(mode) {
   if (btnDesk) btnDesk.className = mode === 'desktop' ? 'px-1.5 py-0.5 rounded bg-indigo-650 text-white font-bold' : 'px-1.5 py-0.5 rounded text-slate-500 hover:text-white';
   if (btnAuto) btnAuto.className = mode === 'auto' ? 'px-1.5 py-0.5 rounded bg-indigo-650 text-white font-bold' : 'px-1.5 py-0.5 rounded text-slate-500 hover:text-white';
 
+  updateMobileView();
+}
+
+function toggleSidebar() {
+  sidebarHidden = !sidebarHidden;
   updateMobileView();
 }
