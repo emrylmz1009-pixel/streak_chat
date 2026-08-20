@@ -602,18 +602,14 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('screenshot-taken', ({ chatId, userName }) => {
-    const systemMsg = {
-      id: 'msg_' + Math.random().toString(36).substr(2, 9),
-      chatId,
-      senderId: 'system',
-      text: `⚠️ ${userName} ekran görüntüsü almış veya sohbeti kopyalamış olabilir!`,
-      isSystem: true,
-      timestamp: new Date().toISOString()
-    };
-    db.saveMessage(systemMsg).then(() => {
-      io.to(`chat_${chatId}`).emit('message', systemMsg);
-    });
+
+
+  socket.on('draw-line', (data) => {
+    socket.to(`chat_${data.chatId}`).emit('draw-line', data);
+  });
+
+  socket.on('clear-board', (data) => {
+    socket.to(`chat_${data.chatId}`).emit('clear-board', data);
   });
 
   socket.on('typing', ({ chatId, userId, isTyping, name }) => {

@@ -18,7 +18,6 @@ let selectedDocSize = 0;
 let viewOnceActive = false;
 let editingMessageId = null;
 let quotedMessage = null;
-let html5QrcodeScanner = null;
 let onlinePartners = new Set(); // set of online userIds
 
 // Initialize App
@@ -26,7 +25,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('resize', updateMobileView);
   checkAdminPersisted();
   checkThemePersisted();
-  setupScreenshotDetection();
   await detectIp();
   await checkAutoLogin();
 });
@@ -349,6 +347,25 @@ function initSocket() {
       }
     }
     loadChats();
+  });
+
+  socket.on('draw-line', (data) => {
+    if (activeChat && data.chatId === activeChat.id) {
+      const container = document.getElementById('whiteboard-container');
+      if (container && container.classList.contains('hidden')) {
+        container.classList.remove('hidden');
+        setupWhiteboardCanvas();
+      }
+      drawOnCanvas(data.x, data.y, data.prevX, data.prevY, data.color, data.width);
+    }
+  });
+
+  socket.on('clear-board', (data) => {
+    if (activeChat && data.chatId === activeChat.id) {
+      if (canvasContext && canvasElement) {
+        canvasContext.clearRect(0, 0, canvasElement.width, canvasElement.height);
+      }
+    }
   });
 }
 
@@ -1117,7 +1134,10 @@ function navigateMobile(screenName) {
 }
 
 function updateMobileView() {
-  const isMobile = window.innerWidth < 768;
+  let isMobile = window.innerWidth < 768;
+  if (layoutMode === 'mobile') isMobile = true;
+  if (layoutMode === 'desktop') isMobile = false;
+
   const sidebar = document.getElementById('sidebar-panel');
   const chatPanel = document.getElementById('chat-panel');
   const infoPanel = document.getElementById('chat-info-panel');
@@ -1177,7 +1197,9 @@ function updateMobileView() {
 
 // Override toggleInfoPanel for compatibility
 function toggleInfoPanel() {
-  const isMobile = window.innerWidth < 768;
+  let isMobile = window.innerWidth < 768;
+  if (layoutMode === 'mobile') isMobile = true;
+  if (layoutMode === 'desktop') isMobile = false;
   if (isMobile) {
     navigateMobile('info');
   } else {
@@ -1312,102 +1334,6 @@ function checkThemePersisted() {
   }
 }
 
-// --- QR Match Generation & Scanning ---
-
-function showQrModal() {
-  if (!currentUser) return;
-  const qrUrl = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(currentUser.code)}`;
-  document.getElementById('qr-image-val').src = qrUrl;
-  document.getElementById('qr-code-val-text').innerText = currentUser.code;
-  document.getElementById('qr-modal').classList.remove('hidden');
-}
-
-function hideQrModal() {
-  document.getElementById('qr-modal').classList.add('hidden');
-}
-
-function startQrScanner() {
-  document.getElementById('qr-scanner-modal').classList.remove('hidden');
-  
-  html5QrcodeScanner = new Html5Qrcode("scanner-preview");
-  html5QrcodeScanner.start(
-    { facingMode: "environment" },
-    { fps: 10, qrbox: 250 },
-    qrCodeMessage => {
-      document.getElementById('match-code-input').value = qrCodeMessage;
-      stopQrScanner();
-      alert("QR Kod tarandı: " + qrCodeMessage);
-    },
-    errorMessage => {
-      // quiet errors
-    }
-  ).catch(err => {
-    console.error("Camera error:", err);
-    alert("Kameraya erişilemedi.");
-    stopQrScanner();
-  });
-}
-
-function stopQrScanner() {
-  if (html5QrcodeScanner) {
-    html5QrcodeScanner.stop().then(() => {
-      html5QrcodeScanner = null;
-      document.getElementById('qr-scanner-modal').classList.add('hidden');
-    }).catch(err => {
-      console.error(err);
-      document.getElementById('qr-scanner-modal').classList.add('hidden');
-    });
-  } else {
-    document.getElementById('qr-scanner-modal').classList.add('hidden');
-  }
-}
-
-// --- Screenshot & Copy Warning detection ---
-
-function setupScreenshotDetection() {
-  // Detect standard snippet screenshot hotkeys
-  document.addEventListener('keydown', (e) => {
-    if (!activeChat || !currentUser) return;
-    
-    // Catch standard print-screen or Meta+Shift+S (snipping tool shortcut)
-    if (e.key === 'PrintScreen' || (e.metaKey && e.shiftKey && e.key.toUpperCase() === 'S')) {
-      triggerScreenshotAlert();
-    }
-  });
-
-  // Detect copy event within messages container
-  const container = document.getElementById('messages-container');
-  if (container) {
-    container.addEventListener('copy', () => {
-      if (activeChat && currentUser) {
-        triggerScreenshotAlert();
-      }
-    });
-  }
-
-  // Detect focus loss (blur) which often indicates opening screenshot snippet tools
-  window.addEventListener('blur', () => {
-    if (activeChat && currentUser) {
-      // Trigger a delayed alert to prevent false alerts on quick clicks
-      setTimeout(() => {
-        if (document.activeElement && document.activeElement.tagName === 'IFRAME') return; // ignore iframe clicks
-        if (!document.hasFocus()) {
-          // Trigger alert if they left the window while chat is active
-          triggerScreenshotAlert();
-        }
-      }, 500);
-    }
-  });
-}
-
-function triggerScreenshotAlert() {
-  if (!activeChat || !currentUser) return;
-  socket.emit('screenshot-taken', {
-    chatId: activeChat.id,
-    userName: currentUser.name
-  });
-}
-
 // --- Formatting Helpers ---
 
 function formatTimeAgo(isoString) {
@@ -1444,5 +1370,171 @@ function escapeHTML(str) {
 
 function scrollToBottom() {
   const container = document.getElementById('messages-container');
-  container.scrollTop = container.scrollHeight;
+  if (container) container.scrollTop = container.scrollHeight;
+}
+
+// --- Shared Collaborative Whiteboard (Feature 33) ---
+let isDrawing = false;
+let lastX = 0;
+let lastY = 0;
+let canvasElement = null;
+let canvasContext = null;
+
+function toggleWhiteboard() {
+  const container = document.getElementById('whiteboard-container');
+  if (!container) return;
+  if (container.classList.contains('hidden')) {
+    container.classList.remove('hidden');
+    setupWhiteboardCanvas();
+  } else {
+    container.classList.add('hidden');
+  }
+}
+
+function setupWhiteboardCanvas() {
+  canvasElement = document.getElementById('whiteboard-canvas');
+  if (!canvasElement) return;
+  canvasContext = canvasElement.getContext('2d');
+  
+  const rect = canvasElement.getBoundingClientRect();
+  canvasElement.width = rect.width;
+  canvasElement.height = rect.height;
+  
+  canvasContext.lineCap = 'round';
+  canvasContext.lineJoin = 'round';
+
+  // Mouse events
+  canvasElement.addEventListener('mousedown', startDrawing);
+  canvasElement.addEventListener('mousemove', draw);
+  canvasElement.addEventListener('mouseup', stopDrawing);
+  canvasElement.addEventListener('mouseleave', stopDrawing);
+
+  // Touch events
+  canvasElement.addEventListener('touchstart', startDrawingTouch);
+  canvasElement.addEventListener('touchmove', drawTouch);
+  canvasElement.addEventListener('touchend', stopDrawing);
+}
+
+function getCoordinates(e) {
+  const rect = canvasElement.getBoundingClientRect();
+  return {
+    x: e.clientX - rect.left,
+    y: e.clientY - rect.top
+  };
+}
+
+function startDrawing(e) {
+  isDrawing = true;
+  const coords = getCoordinates(e);
+  lastX = coords.x;
+  lastY = coords.y;
+}
+
+function draw(e) {
+  if (!isDrawing) return;
+  const coords = getCoordinates(e);
+  const x = coords.x;
+  const y = coords.y;
+
+  drawOnCanvas(x, y, lastX, lastY, getSelectedColor(), getSelectedWidth());
+
+  if (socket && activeChat) {
+    socket.emit('draw-line', {
+      chatId: activeChat.id,
+      x,
+      y,
+      prevX: lastX,
+      prevY: lastY,
+      color: getSelectedColor(),
+      width: getSelectedWidth()
+    });
+  }
+
+  lastX = x;
+  lastY = y;
+}
+
+function startDrawingTouch(e) {
+  if (e.touches.length === 0) return;
+  isDrawing = true;
+  const rect = canvasElement.getBoundingClientRect();
+  lastX = e.touches[0].clientX - rect.left;
+  lastY = e.touches[0].clientY - rect.top;
+  e.preventDefault();
+}
+
+function drawTouch(e) {
+  if (!isDrawing || e.touches.length === 0) return;
+  const rect = canvasElement.getBoundingClientRect();
+  const x = e.touches[0].clientX - rect.left;
+  const y = e.touches[0].clientY - rect.top;
+
+  drawOnCanvas(x, y, lastX, lastY, getSelectedColor(), getSelectedWidth());
+
+  if (socket && activeChat) {
+    socket.emit('draw-line', {
+      chatId: activeChat.id,
+      x,
+      y,
+      prevX: lastX,
+      prevY: lastY,
+      color: getSelectedColor(),
+      width: getSelectedWidth()
+    });
+  }
+
+  lastX = x;
+  lastY = y;
+  e.preventDefault();
+}
+
+function stopDrawing() {
+  isDrawing = false;
+}
+
+function drawOnCanvas(x, y, prevX, prevY, color, width) {
+  if (!canvasContext) return;
+  canvasContext.strokeStyle = color;
+  canvasContext.lineWidth = width;
+  canvasContext.beginPath();
+  canvasContext.moveTo(prevX, prevY);
+  canvasContext.lineTo(x, y);
+  canvasContext.stroke();
+}
+
+function getSelectedColor() {
+  const el = document.getElementById('board-color');
+  return el ? el.value : '#6366f1';
+}
+
+// Fix selected width fallback
+function getSelectedWidth() {
+  const el = document.getElementById('board-width');
+  return el ? parseInt(el.value) : 4;
+}
+
+function clearBoard() {
+  if (!canvasElement || !canvasContext) return;
+  canvasContext.clearRect(0, 0, canvasElement.width, canvasElement.height);
+
+  if (socket && activeChat) {
+    socket.emit('clear-board', { chatId: activeChat.id });
+  }
+}
+
+// --- Layout Simulation System ---
+let layoutMode = 'auto'; // 'auto', 'mobile', 'desktop'
+
+function setLayoutMode(mode) {
+  layoutMode = mode;
+  
+  const btnMob = document.getElementById('layout-btn-mobile');
+  const btnDesk = document.getElementById('layout-btn-desktop');
+  const btnAuto = document.getElementById('layout-btn-auto');
+
+  if (btnMob) btnMob.className = mode === 'mobile' ? 'px-1.5 py-0.5 rounded bg-indigo-650 text-white font-bold' : 'px-1.5 py-0.5 rounded text-slate-500 hover:text-white';
+  if (btnDesk) btnDesk.className = mode === 'desktop' ? 'px-1.5 py-0.5 rounded bg-indigo-650 text-white font-bold' : 'px-1.5 py-0.5 rounded text-slate-500 hover:text-white';
+  if (btnAuto) btnAuto.className = mode === 'auto' ? 'px-1.5 py-0.5 rounded bg-indigo-650 text-white font-bold' : 'px-1.5 py-0.5 rounded text-slate-500 hover:text-white';
+
+  updateMobileView();
 }
