@@ -195,6 +195,25 @@
       max-width: 82% !important;
     }
 
+    /* APK-mode chat header: butonlar görünür kalsın */
+    body.apk-mode #chat-active-view > div:first-child {
+      overflow: visible !important;
+      z-index: 25 !important;
+      position: relative !important;
+    }
+    /* Header'daki tüm butonlar kesilmesin */
+    body.apk-mode #chat-active-view > div:first-child button {
+      flex-shrink: 0 !important;
+      display: flex !important;
+    }
+    /* Header sağ buton grubu taşmasın */
+    body.apk-mode #chat-active-view > div:first-child > div:last-child {
+      flex-shrink: 0 !important;
+      display: flex !important;
+      align-items: center !important;
+      gap: 0.25rem !important;
+    }
+
     /* WhatsApp Background Pattern & Opacity Overlay */
     #messages-container {
       position: relative;
