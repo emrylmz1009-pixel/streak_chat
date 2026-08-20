@@ -18,7 +18,6 @@ let selectedDocSize = 0;
 let viewOnceActive = false;
 let editingMessageId = null;
 let quotedMessage = null;
-let onlinePartners = new Set(); // set of online userIds
 let sidebarHidden = false;
 
 // Initialize App
@@ -332,23 +331,7 @@ function initSocket() {
     }
   });
 
-  socket.on('online-status-update', (data) => {
-    if (data.isOnline) {
-      onlinePartners.add(data.userId);
-    } else {
-      onlinePartners.delete(data.userId);
-    }
-    
-    // Update current active chat indicators
-    if (activeChat) {
-      const isUser1 = activeChat.user1Id === currentUser.id;
-      const partnerId = isUser1 ? activeChat.user2Id : activeChat.user1Id;
-      if (partnerId === data.userId) {
-        updatePartnerOnlineStatus(data.isOnline);
-      }
-    }
-    loadChats();
-  });
+
 
   socket.on('draw-line', (data) => {
     if (activeChat && data.chatId === activeChat.id) {
@@ -377,21 +360,6 @@ async function loadChats() {
     const res = await fetch(`/api/chats/${currentUser.id}`);
     const chats = await res.json();
 
-    // Query online statuses
-    const partnerIds = chats.map(c => c.user1Id === currentUser.id ? c.user2Id : c.user1Id);
-    const statusRes = await fetch('/api/users/online-statuses', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userIds: partnerIds })
-    });
-    const statuses = await statusRes.json();
-    
-    // Update local onlinePartners set
-    Object.keys(statuses).forEach(uid => {
-      if (statuses[uid]) onlinePartners.add(uid);
-      else onlinePartners.delete(uid);
-    });
-
     const chatList = document.getElementById('chat-list');
     chatList.innerHTML = '';
 
@@ -408,15 +376,12 @@ async function loadChats() {
       }`;
       item.onclick = () => selectChat(chat.id);
 
-      const otherUserId = chat.user1Id === currentUser.id ? chat.user2Id : chat.user1Id;
-      const isOnline = onlinePartners.has(otherUserId);
       const hasStreak = chat.streakCount > 0;
 
       item.innerHTML = `
         <div class="flex items-center gap-2.5 overflow-hidden">
-          <div class="w-8 h-8 rounded-full bg-slate-700 text-white font-bold text-xs flex items-center justify-center shrink-0 relative">
+          <div class="w-8 h-8 rounded-full bg-slate-700 text-white font-bold text-xs flex items-center justify-center shrink-0">
             ${chat.partnerName.split(' ').map(n => n[0]).join('')}
-            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-slate-900 ${isOnline ? 'bg-emerald-500' : 'bg-slate-500'}"></span>
           </div>
           <div class="overflow-hidden">
             <div class="font-semibold text-sm truncate flex items-center gap-1">
@@ -464,10 +429,7 @@ async function selectChat(chatId) {
     document.getElementById('partner-code-sub').innerText = `Kod: ${activeChat.partnerCode}`;
     document.getElementById('partner-avatar').innerText = activeChat.partnerName.split(' ').map(n => n[0]).join('');
 
-    // Update partner online status indicators
-    const partnerId = activeChat.user1Id === currentUser.id ? activeChat.user2Id : activeChat.user1Id;
-    const isOnline = onlinePartners.has(partnerId);
-    updatePartnerOnlineStatus(isOnline);
+
 
     // Refresh messages
     await refreshMessages();
@@ -500,19 +462,7 @@ async function refreshMessages() {
   }
 }
 
-function updatePartnerOnlineStatus(isOnline) {
-  const indicator = document.getElementById('partner-online-indicator');
-  const txt = document.getElementById('partner-online-text');
-  if (isOnline) {
-    indicator.className = "absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 bg-emerald-500";
-    txt.innerText = "Çevrimiçi";
-    txt.className = "text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-950 text-emerald-450 text-emerald-400 font-semibold uppercase";
-  } else {
-    indicator.className = "absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 bg-slate-500";
-    txt.innerText = "Çevrimdışı";
-    txt.className = "text-[9px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 font-semibold uppercase";
-  }
-}
+
 
 // Start match via code submission
 async function startMatch() {
@@ -921,8 +871,8 @@ function appendMessage(msg) {
     msgEl.className = `flex ${isMe ? 'justify-end' : 'justify-start'} mb-3 relative group`;
     
     let bubbleClass = isMe 
-      ? 'bg-indigo-650 text-white rounded-br-none border border-indigo-600'
-      : 'bg-slate-900 text-slate-100 rounded-bl-none border border-slate-800';
+      ? 'whatsapp-bubble-me'
+      : 'whatsapp-bubble-partner';
 
     let mediaHtml = '';
     const hasViewedOnce = msg.isViewOnce && (!msg.mediaUrl || (msg.viewedBy && msg.viewedBy.includes(currentUser.id)));
@@ -986,11 +936,9 @@ function appendMessage(msg) {
     let tickHtml = '';
     if (isMe) {
       if (msg.status === 'read') {
-        tickHtml = '<span class="text-indigo-400 ml-1 font-bold" title="Okundu"><i class="fa-solid fa-check-double text-[10px]"></i></span>';
-      } else if (msg.status === 'delivered') {
-        tickHtml = '<span class="text-slate-500 ml-1 font-bold" title="İletildi"><i class="fa-solid fa-check-double text-[10px]"></i></span>';
+        tickHtml = '<span class="whatsapp-tick-read ml-1 font-bold" title="Okundu"><i class="fa-solid fa-check-double text-[10px]"></i></span>';
       } else {
-        tickHtml = '<span class="text-slate-500 ml-1" title="Gönderildi"><i class="fa-solid fa-check text-[10px]"></i></span>';
+        tickHtml = '<span class="whatsapp-tick-unread ml-1" title="Gönderildi"><i class="fa-solid fa-check text-[10px]"></i></span>';
       }
     }
 

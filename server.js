@@ -61,7 +61,7 @@ function filterText(text) {
   return filtered;
 }
 
-const onlineUsers = new Map();
+
 
 // Helper: Hash password with SHA256
 function hashPassword(password) {
@@ -368,16 +368,7 @@ app.post('/api/chats/:chatId/clear', async (req, res) => {
   }
 });
 
-// Get Online Statuses of multiple Users
-app.post('/api/users/online-statuses', (req, res) => {
-  const { userIds } = req.body;
-  if (!userIds || !Array.isArray(userIds)) return res.json({});
-  const statuses = {};
-  userIds.forEach(uid => {
-    statuses[uid] = onlineUsers.has(uid);
-  });
-  res.json(statuses);
-});
+
 
 // View Once message open verification & media wipe
 app.post('/api/chats/:chatId/messages/:messageId/view-once', async (req, res) => {
@@ -516,13 +507,6 @@ app.post('/api/debug/reset', async (req, res) => {
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id);
 
-  socket.on('register-user', ({ userId }) => {
-    socket.userId = userId;
-    onlineUsers.set(userId, socket.id);
-    console.log(`User registered: ${userId} -> Socket ${socket.id}`);
-    io.emit('online-status-update', { userId, isOnline: true });
-  });
-
   socket.on('join-chat', ({ chatId }) => {
     socket.join(`chat_${chatId}`);
     console.log(`Socket ${socket.id} joined room chat_${chatId}`);
@@ -534,11 +518,8 @@ io.on('connection', (socket) => {
       const chat = await db.getChatById(chatId);
       if (!chat) return;
 
-      const otherUserId = chat.user1Id === senderId ? chat.user2Id : chat.user1Id;
-      const isPartnerOnline = onlineUsers.has(otherUserId);
       const room = io.sockets.adapter.rooms.get(`chat_${chatId}`);
-      const partnerSocketId = onlineUsers.get(otherUserId);
-      const isPartnerInRoom = room && room.has(partnerSocketId);
+      const isPartnerInRoom = room && room.size >= 2;
 
       const message = {
         id: 'msg_' + Math.random().toString(36).substr(2, 9),
@@ -554,7 +535,7 @@ io.on('connection', (socket) => {
         isViewOnce: data.isViewOnce || false,
         viewedBy: [],
         isSystem: false,
-        status: isPartnerInRoom ? 'read' : (isPartnerOnline ? 'delivered' : 'sent'),
+        status: isPartnerInRoom ? 'read' : 'sent',
         timestamp: new Date().toISOString()
       };
 
@@ -602,8 +583,6 @@ io.on('connection', (socket) => {
     }
   });
 
-
-
   socket.on('draw-line', (data) => {
     socket.to(`chat_${data.chatId}`).emit('draw-line', data);
   });
@@ -618,10 +597,6 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('Socket disconnected:', socket.id);
-    if (socket.userId) {
-      onlineUsers.delete(socket.userId);
-      io.emit('online-status-update', { userId: socket.userId, isOnline: false });
-    }
   });
 });
 
