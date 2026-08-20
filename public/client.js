@@ -20,6 +20,23 @@ let editingMessageId = null;
 let quotedMessage = null;
 let sidebarHidden = false;
 
+// ── WebRTC Voice Call variables ──────────────────────────────────
+let peerConnection = null;
+let localStream = null;
+let isMuted = false;
+let isSpeakerOff = false;
+let callTimerInterval = null;
+let callSeconds = 0;
+let isCallInitiator = false;
+
+const STUN_SERVERS = {
+  iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' }
+  ]
+};
+// ────────────────────────────────────────────────────────────────
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
   // Detect APK WebView and apply apk-mode class
@@ -355,7 +372,193 @@ function initSocket() {
       }
     }
   });
+
+  // ── WebRTC Voice Call listeners ──────────────────────────────────
+  socket.on('call-incoming', ({ callerName }) => {
+    document.getElementById('incoming-caller-name').textContent = callerName;
+    document.getElementById('incoming-call-modal').classList.remove('hidden');
+    isCallInitiator = false;
+    // Play ringing sound
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      osc.connect(ctx.destination);
+      osc.frequency.setValueAtTime(480, ctx.currentTime);
+      osc.start(); osc.stop(ctx.currentTime + 0.4);
+    } catch(e) {}
+  });
+
+  socket.on('call-accepted', async () => {
+    // Caller: partner accepted — create offer
+    document.getElementById('incoming-call-modal').classList.add('hidden');
+    await setupPeerConnection();
+    const offer = await peerConnection.createOffer();
+    await peerConnection.setLocalDescription(offer);
+    socket.emit('webrtc-offer', { chatId: activeChat.id, offer });
+    showActiveCallUI();
+  });
+
+  socket.on('call-rejected', () => {
+    document.getElementById('incoming-call-modal').classList.add('hidden');
+    showToast('Arama reddedildi ❌');
+    cleanupCall();
+  });
+
+  socket.on('call-ended', () => {
+    document.getElementById('incoming-call-modal').classList.add('hidden');
+    document.getElementById('active-call-overlay').classList.add('hidden');
+    showToast('Arama sonlandı 📵');
+    cleanupCall();
+  });
+
+  socket.on('webrtc-offer', async ({ offer }) => {
+    // Callee: received offer — create answer
+    await setupPeerConnection();
+    await peerConnection.setRemoteDescription(new RTCSessionDescription(offer));
+    const answer = await peerConnection.createAnswer();
+    await peerConnection.setLocalDescription(answer);
+    socket.emit('webrtc-answer', { chatId: activeChat.id, answer });
+    showActiveCallUI();
+  });
+
+  socket.on('webrtc-answer', async ({ answer }) => {
+    // Caller: received answer — set remote description
+    if (peerConnection) {
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(answer));
+    }
+  });
+
+  socket.on('webrtc-ice', async ({ candidate }) => {
+    if (peerConnection && candidate) {
+      try {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate));
+      } catch(e) {}
+    }
+  });
+  // ────────────────────────────────────────────────────────────────
 }
+
+// ── WebRTC Helper Functions ──────────────────────────────────────
+
+async function setupPeerConnection() {
+  // Get microphone access
+  try {
+    localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch(e) {
+    showToast('Mikrofon erişimi reddedildi! ❌');
+    throw e;
+  }
+
+  peerConnection = new RTCPeerConnection(STUN_SERVERS);
+
+  // Add local audio tracks
+  localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+  // When remote audio arrives — play it
+  peerConnection.ontrack = (event) => {
+    const remoteAudio = document.getElementById('remote-audio');
+    remoteAudio.srcObject = event.streams[0];
+  };
+
+  // Send ICE candidates to partner
+  peerConnection.onicecandidate = (event) => {
+    if (event.candidate && activeChat) {
+      socket.emit('webrtc-ice', { chatId: activeChat.id, candidate: event.candidate });
+    }
+  };
+
+  peerConnection.onconnectionstatechange = () => {
+    if (peerConnection.connectionState === 'disconnected' || peerConnection.connectionState === 'failed') {
+      cleanupCall();
+      document.getElementById('active-call-overlay').classList.add('hidden');
+      showToast('Bağlantı kesildi 📵');
+    }
+  };
+}
+
+function showActiveCallUI() {
+  document.getElementById('incoming-call-modal').classList.add('hidden');
+  const overlay = document.getElementById('active-call-overlay');
+  overlay.classList.remove('hidden');
+  document.getElementById('call-partner-label').textContent =
+    document.getElementById('partner-name').textContent;
+  // Start call timer
+  callSeconds = 0;
+  clearInterval(callTimerInterval);
+  callTimerInterval = setInterval(() => {
+    callSeconds++;
+    const m = String(Math.floor(callSeconds / 60)).padStart(2, '0');
+    const s = String(callSeconds % 60).padStart(2, '0');
+    document.getElementById('call-timer').textContent = `${m}:${s}`;
+  }, 1000);
+}
+
+function cleanupCall() {
+  if (peerConnection) { peerConnection.close(); peerConnection = null; }
+  if (localStream) { localStream.getTracks().forEach(t => t.stop()); localStream = null; }
+  clearInterval(callTimerInterval);
+  callSeconds = 0;
+  isMuted = false;
+  isSpeakerOff = false;
+  document.getElementById('call-timer').textContent = '00:00';
+  const muteBtn = document.getElementById('mute-btn');
+  if (muteBtn) muteBtn.innerHTML = '<i class="fa-solid fa-microphone text-sm"></i>';
+}
+
+async function startCall() {
+  if (!activeChat) return;
+  if (peerConnection) { showToast('Zaten aktif bir arama var!'); return; }
+  isCallInitiator = true;
+  // Just signal — wait for accept before creating offer
+  socket.emit('call-initiate', {
+    chatId: activeChat.id,
+    callerName: currentUser.name || 'Anonim'
+  });
+  showToast('📞 Arama isteği gönderildi...');
+}
+
+async function acceptCall() {
+  document.getElementById('incoming-call-modal').classList.add('hidden');
+  socket.emit('call-accept', { chatId: activeChat.id });
+  // Callee waits for webrtc-offer from caller (handled in socket listener above)
+}
+
+function rejectCall() {
+  document.getElementById('incoming-call-modal').classList.add('hidden');
+  socket.emit('call-reject', { chatId: activeChat.id });
+}
+
+function endCall() {
+  if (activeChat) socket.emit('call-end', { chatId: activeChat.id });
+  document.getElementById('active-call-overlay').classList.add('hidden');
+  cleanupCall();
+  showToast('Arama sonlandırıldı 📵');
+}
+
+function toggleMute() {
+  if (!localStream) return;
+  isMuted = !isMuted;
+  localStream.getAudioTracks().forEach(t => { t.enabled = !isMuted; });
+  const btn = document.getElementById('mute-btn');
+  btn.innerHTML = isMuted
+    ? '<i class="fa-solid fa-microphone-slash text-sm text-red-400"></i>'
+    : '<i class="fa-solid fa-microphone text-sm"></i>';
+}
+
+function toggleSpeaker() {
+  const remoteAudio = document.getElementById('remote-audio');
+  if (!remoteAudio) return;
+  isSpeakerOff = !isSpeakerOff;
+  remoteAudio.muted = isSpeakerOff;
+  const btn = document.getElementById('speaker-btn');
+  btn.innerHTML = isSpeakerOff
+    ? '<i class="fa-solid fa-volume-xmark text-sm text-red-400"></i>'
+    : '<i class="fa-solid fa-volume-high text-sm"></i>';
+}
+
+// ────────────────────────────────────────────────────────────────
+
+
 
 // Fetch and Render Chats Sidebar
 async function loadChats() {

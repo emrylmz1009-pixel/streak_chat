@@ -595,6 +595,36 @@ io.on('connection', (socket) => {
     socket.to(`chat_${chatId}`).emit('typing', { userId, isTyping, name });
   });
 
+  // ── Voice Call Signaling (WebRTC) ──────────────────────────────
+  socket.on('call-initiate', ({ chatId, callerName }) => {
+    socket.to(`chat_${chatId}`).emit('call-incoming', { callerName });
+  });
+
+  socket.on('call-accept', ({ chatId }) => {
+    socket.to(`chat_${chatId}`).emit('call-accepted');
+  });
+
+  socket.on('call-reject', ({ chatId }) => {
+    socket.to(`chat_${chatId}`).emit('call-rejected');
+  });
+
+  socket.on('call-end', ({ chatId }) => {
+    socket.to(`chat_${chatId}`).emit('call-ended');
+  });
+
+  socket.on('webrtc-offer', ({ chatId, offer }) => {
+    socket.to(`chat_${chatId}`).emit('webrtc-offer', { offer });
+  });
+
+  socket.on('webrtc-answer', ({ chatId, answer }) => {
+    socket.to(`chat_${chatId}`).emit('webrtc-answer', { answer });
+  });
+
+  socket.on('webrtc-ice', ({ chatId, candidate }) => {
+    socket.to(`chat_${chatId}`).emit('webrtc-ice', { candidate });
+  });
+  // ───────────────────────────────────────────────────────────────
+
   socket.on('disconnect', () => {
     console.log('Socket disconnected:', socket.id);
   });
