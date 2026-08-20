@@ -4,12 +4,12 @@ let activeChat = null;
 let typingTimeout = null;
 let countdownInterval = null;
 let simulatedMediaData = null;
+let currentMobileScreen = 'list'; // 'list', 'chat', 'info'
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
   await initUser();
-  initSocket();
-  await loadChats();
+  window.addEventListener('resize', updateMobileView);
 });
 
 // User Setup
@@ -20,24 +20,61 @@ async function initUser() {
       currentUser = JSON.parse(storedUser);
       // Fetch fresh data from backend
       await refreshUserProfile();
+      initSocket();
+      await loadChats();
+      updateMobileView();
     } catch {
-      await createNewUser();
+      showProfileSetup();
     }
   } else {
-    await createNewUser();
+    showProfileSetup();
+  }
+}
+
+function showProfileSetup() {
+  document.getElementById('profile-setup-screen').classList.remove('hidden');
+}
+
+async function handleProfileCreate(event) {
+  event.preventDefault();
+  const nameInput = document.getElementById('setup-username-input');
+  const name = nameInput.value.trim();
+  
+  if (!name) return;
+
+  try {
+    const res = await fetch('/api/users/create', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name })
+    });
+    
+    if (!res.ok) {
+      alert('Profil oluşturulurken hata oluştu.');
+      return;
+    }
+
+    const user = await res.json();
+    currentUser = user;
+    localStorage.setItem('streak_chat_user', JSON.stringify(user));
+    
+    // Hide setup overlay
+    document.getElementById('profile-setup-screen').classList.add('hidden');
+    
+    // Initialize everything else
+    renderProfile();
+    initSocket();
+    await loadChats();
+    updateMobileView();
+  } catch (err) {
+    console.error('Error creating custom user:', err);
+    alert('Bağlantı hatası oluştu.');
   }
 }
 
 async function createNewUser() {
-  try {
-    const res = await fetch('/api/users/create', { method: 'POST' });
-    const user = await res.json();
-    currentUser = user;
-    localStorage.setItem('streak_chat_user', JSON.stringify(user));
-    renderProfile();
-  } catch (err) {
-    console.error('Error creating user:', err);
-  }
+  // Safe fallback if needed, but we now show the setup modal.
+  showProfileSetup();
 }
 
 async function refreshUserProfile() {
@@ -51,7 +88,8 @@ async function refreshUserProfile() {
       renderProfile();
     } else {
       // User not found in DB (e.g. db was reset)
-      await createNewUser();
+      localStorage.clear();
+      showProfileSetup();
     }
   } catch (err) {
     console.error('Error refreshing profile:', err);
@@ -106,17 +144,14 @@ function initSocket() {
   });
 
   socket.on('streak-update', async (data) => {
-    // If it belongs to our active chat, update activeChat and refresh view
     if (activeChat && data.chat.id === activeChat.id) {
       activeChat = {
         ...activeChat,
         ...data.chat
       };
       
-      // Update the side panel widgets
       updateStreakPanel();
 
-      // If user data was updated (e.g. badges or freezes changed), refresh profile
       if (data.users) {
         if (data.users.u1 && data.users.u1.id === currentUser.id) {
           currentUser = data.users.u1;
@@ -176,8 +211,6 @@ async function loadChats() {
         isSelected ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/40 text-slate-300'
       }`;
       item.onclick = () => selectChat(chat.id);
-
-      const hasUnread = false; // Placeholder
 
       const hasStreak = chat.streakCount > 0;
 
@@ -242,7 +275,7 @@ async function selectChat(chatId) {
     messages.forEach(msg => appendMessage(msg));
     scrollToBottom();
 
-    // Show Right Sidebar Info
+    // Show Right Sidebar Info (handles class updates in updateMobileView)
     document.getElementById('chat-info-panel').classList.remove('hidden');
 
     // Update streak widget
@@ -251,8 +284,8 @@ async function selectChat(chatId) {
     // Start countdown
     startCountdown();
 
-    // Highlight selected item in sidebar
-    loadChats();
+    // Change screen to chat on mobile
+    navigateMobile('chat');
   } catch (err) {
     console.error('Error selecting chat:', err);
   }
@@ -316,7 +349,6 @@ function sendMessage(event) {
   textInput.value = '';
   clearSimulatedMedia();
   
-  // Stop typing indicator on send
   socket.emit('typing', { chatId: activeChat.id, userId: currentUser.id, isTyping: false, name: currentUser.name });
 }
 
@@ -361,7 +393,7 @@ function appendMessage(msg) {
     }
 
     msgEl.innerHTML = `
-      <div class="max-w-[70%]">
+      <div class="max-w-[85%] md:max-w-[70%]">
         <div class="px-4 py-2.5 rounded-2xl text-sm shadow-md ${bubbleClass}">
           ${mediaHtml}
           <div>${escapeHTML(msg.text)}</div>
@@ -390,14 +422,12 @@ function updateStreakPanel() {
   const streak = activeChat.streakCount;
   countDisplay.innerText = streak;
 
-  // Visual state for flame
   if (streak > 0) {
     flame.className = "fa-solid fa-fire text-orange-500 text-6xl animate-bounce";
   } else {
     flame.className = "fa-solid fa-fire text-slate-700 text-6xl opacity-50";
   }
 
-  // Daily Messaged Checkboxes
   const isUser1 = activeChat.user1Id === currentUser.id;
   const myMessaged = isUser1 ? activeChat.user1MessagedToday : activeChat.user2MessagedToday;
   const partnerMessaged = isUser1 ? activeChat.user2MessagedToday : activeChat.user1MessagedToday;
@@ -418,7 +448,6 @@ function updateStreakPanel() {
     partnerMessagedFlag.className = 'px-2 py-0.5 rounded text-xs font-semibold bg-red-950 text-red-400 border border-red-900/50';
   }
 
-  // Status Summary Text
   if (myMessaged && partnerMessaged) {
     statusText.innerText = 'Bugün ikiniz de mesaj attınız! Seri güvende. 🎉';
   } else if (myMessaged) {
@@ -458,11 +487,9 @@ function startCountdown() {
     const pad = (n) => n.toString().padStart(2, '0');
     timeLeftText.innerText = `${pad(hours)}:${pad(minutes)}:${pad(seconds)} kaldı`;
 
-    // Progress Bar percentage
     const percent = Math.max(0, Math.min(100, (diff / durationMs) * 100));
     progressBar.style.width = `${percent}%`;
 
-    // Color progress bar depending on urgency
     if (percent < 15) {
       progressBar.className = 'bg-red-500 h-full transition-all duration-1000';
     } else if (percent < 40) {
@@ -474,6 +501,94 @@ function startCountdown() {
 
   updateCountdown();
   countdownInterval = setInterval(updateCountdown, 1000);
+}
+
+// --- Mobile Navigation Logic ---
+
+function navigateMobile(screenName) {
+  currentMobileScreen = screenName;
+  updateMobileView();
+}
+
+function updateMobileView() {
+  const isMobile = window.innerWidth < 768; // md breakpoint
+  const sidebar = document.getElementById('sidebar-panel');
+  const chatPanel = document.getElementById('chat-panel');
+  const infoPanel = document.getElementById('chat-info-panel');
+
+  if (!isMobile) {
+    // Desktop Layout
+    sidebar.classList.remove('hidden', 'w-full');
+    sidebar.classList.add('flex', 'w-80');
+    chatPanel.classList.remove('hidden');
+    chatPanel.classList.add('flex');
+    
+    if (activeChat) {
+      // lg screen handles flex/hidden of infoPanel via tailwind lg:flex, but let's reset custom classes
+      infoPanel.classList.remove('w-full', 'flex');
+      infoPanel.classList.add('w-80');
+    } else {
+      infoPanel.classList.add('hidden');
+      infoPanel.classList.remove('flex');
+    }
+    return;
+  }
+
+  // Mobile Layout
+  sidebar.classList.remove('w-80');
+  sidebar.classList.add('w-full');
+  infoPanel.classList.remove('w-80');
+  infoPanel.classList.add('w-full');
+
+  if (currentMobileScreen === 'list') {
+    sidebar.classList.remove('hidden');
+    sidebar.classList.add('flex');
+    chatPanel.classList.add('hidden');
+    chatPanel.classList.remove('flex');
+    infoPanel.classList.add('hidden');
+    infoPanel.classList.remove('flex');
+  } else if (currentMobileScreen === 'chat') {
+    sidebar.classList.add('hidden');
+    sidebar.classList.remove('flex');
+    if (activeChat) {
+      chatPanel.classList.remove('hidden');
+      chatPanel.classList.add('flex');
+    } else {
+      // If no active chat, go back to list
+      currentMobileScreen = 'list';
+      sidebar.classList.remove('hidden');
+      sidebar.classList.add('flex');
+      chatPanel.classList.add('hidden');
+      chatPanel.classList.remove('flex');
+    }
+    infoPanel.classList.add('hidden');
+    infoPanel.classList.remove('flex');
+  } else if (currentMobileScreen === 'info') {
+    sidebar.classList.add('hidden');
+    sidebar.classList.remove('flex');
+    chatPanel.classList.add('hidden');
+    chatPanel.classList.remove('flex');
+    infoPanel.classList.remove('hidden');
+    infoPanel.classList.add('flex');
+  }
+}
+
+// Override toggleInfoPanel for compatibility
+function toggleInfoPanel() {
+  const isMobile = window.innerWidth < 768;
+  if (isMobile) {
+    navigateMobile('info');
+  } else {
+    // Desktop toggle panel (normally lg:flex toggles automatically, but let's handle md-lg ranges)
+    const panel = document.getElementById('chat-info-panel');
+    if (panel.classList.contains('hidden')) {
+      panel.classList.remove('hidden');
+      panel.classList.add('flex');
+    } else {
+      panel.classList.add('hidden');
+      panel.classList.remove('flex');
+    }
+  }
 }
 
 // --- Debug Panel Actions ---
@@ -507,7 +622,12 @@ async function triggerTimeWarp(hours) {
       startCountdown();
       await loadChats();
       // Reload messages list
-      selectChat(activeChat.id);
+      const msgRes = await fetch(`/api/chats/${activeChat.id}/messages`);
+      const messages = await msgRes.json();
+      const messagesContainer = document.getElementById('messages-container');
+      messagesContainer.innerHTML = '';
+      messages.forEach(msg => appendMessage(msg));
+      scrollToBottom();
     }
   } catch (err) {
     console.error('Error time warping:', err);
@@ -537,7 +657,6 @@ async function simulatePartnerMessage() {
   const partnerId = isUser1 ? activeChat.user2Id : activeChat.user1Id;
   const partnerName = activeChat.partnerName;
 
-  // Send message event on behalf of partner
   socket.emit('send-message', {
     chatId: activeChat.id,
     senderId: partnerId,
@@ -561,7 +680,6 @@ async function resetDbDebug() {
 
 // Simulated Media Uploads
 function triggerSimulatedMedia() {
-  // Use a placeholder public image for demonstration
   simulatedMediaData = 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=300&auto=format&fit=crop&q=60';
   document.getElementById('media-preview').classList.remove('hidden');
 }
@@ -569,16 +687,6 @@ function triggerSimulatedMedia() {
 function clearSimulatedMedia() {
   simulatedMediaData = null;
   document.getElementById('media-preview').classList.add('hidden');
-}
-
-// Side Panel toggle on Mobile
-function toggleInfoPanel() {
-  const panel = document.getElementById('chat-info-panel');
-  if (panel.classList.contains('hidden')) {
-    panel.classList.remove('hidden');
-  } else {
-    panel.classList.add('hidden');
-  }
 }
 
 // Copy Code

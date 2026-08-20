@@ -52,7 +52,7 @@ function getRandomAnonName() {
 app.post('/api/users/create', async (req, res) => {
   try {
     const code = await generateUniqueCode();
-    const name = getRandomAnonName();
+    const name = req.body.name ? req.body.name.trim() : getRandomAnonName();
     const newUser = {
       id: 'usr_' + Math.random().toString(36).substr(2, 9),
       code,
