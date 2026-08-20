@@ -3,12 +3,13 @@ let currentUser = null;
 let activeChat = null;
 let typingTimeout = null;
 let countdownInterval = null;
-let simulatedMediaData = null;
+let selectedMediaData = null;
 let currentMobileScreen = 'list'; // 'list', 'chat', 'info'
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('resize', updateMobileView);
+  checkAdminPersisted();
   await detectIp();
   await checkAutoLogin();
 });
@@ -35,14 +36,12 @@ async function checkAutoLogin() {
       currentUser = data.user;
       localStorage.setItem('streak_chat_user', JSON.stringify(currentUser));
       
-      // Successfully auto-logged in, hide screen and init app
       document.getElementById('auth-screen').classList.add('hidden');
       renderProfile();
       initSocket();
       await loadChats();
       updateMobileView();
     } else {
-      // Not logged in by IP, show authentication screen
       document.getElementById('auth-screen').classList.remove('hidden');
     }
   } catch (err) {
@@ -103,7 +102,6 @@ async function handleRegisterSubmit(event) {
     currentUser = data;
     localStorage.setItem('streak_chat_user', JSON.stringify(currentUser));
     
-    // Hide auth screen and load app
     document.getElementById('auth-screen').classList.add('hidden');
     renderProfile();
     initSocket();
@@ -142,7 +140,6 @@ async function handleLoginSubmit(event) {
     currentUser = data;
     localStorage.setItem('streak_chat_user', JSON.stringify(currentUser));
     
-    // Hide auth screen and load app
     document.getElementById('auth-screen').classList.add('hidden');
     renderProfile();
     initSocket();
@@ -171,7 +168,6 @@ async function handleLogout() {
     console.error('Logout API failed:', err);
   }
 
-  // Clear local storage and reload
   localStorage.clear();
   window.location.reload();
 }
@@ -220,7 +216,6 @@ function renderProfile() {
       else if (badge === '100-day') badgeLabel = '100 Gün 👑';
       
       badgeElem.innerHTML = badgeLabel;
-      badgesContainer.appendChild(badgeElem);
       badgesContainer.appendChild(badgeElem);
     });
   } else {
@@ -416,6 +411,45 @@ async function startMatch() {
   }
 }
 
+// Media Selection & Conversion
+function handleMediaSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  // Max size limit: 3MB
+  if (file.size > 3 * 1024 * 1024) {
+    alert('Resim boyutu çok büyük (Maksimum 3MB).');
+    event.target.value = '';
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    selectedMediaData = e.target.result; // Base64 Data URL
+    
+    // Render media preview thumbnail
+    const previewContainer = document.getElementById('media-preview');
+    previewContainer.innerHTML = `
+      <div class="relative inline-block m-1">
+        <img src="${selectedMediaData}" class="w-16 h-16 object-cover rounded border border-slate-700">
+        <button type="button" onclick="clearSelectedMedia()" class="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] shadow font-bold">
+          <i class="fa-solid fa-times"></i>
+        </button>
+      </div>
+    `;
+    previewContainer.classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearSelectedMedia() {
+  selectedMediaData = null;
+  document.getElementById('media-file-input').value = '';
+  const previewContainer = document.getElementById('media-preview');
+  previewContainer.innerHTML = '';
+  previewContainer.classList.add('hidden');
+}
+
 // Send Message
 function sendMessage(event) {
   event.preventDefault();
@@ -424,19 +458,19 @@ function sendMessage(event) {
   const textInput = document.getElementById('message-text-input');
   const text = textInput.value.trim();
   
-  if (!text && !simulatedMediaData) return;
+  if (!text && !selectedMediaData) return;
 
   const messageData = {
     chatId: activeChat.id,
     senderId: currentUser.id,
-    text: text || '📸 Fotoğraf gönderdi',
-    mediaUrl: simulatedMediaData
+    text: text || '',
+    mediaUrl: selectedMediaData
   };
 
   socket.emit('send-message', messageData);
   
   textInput.value = '';
-  clearSimulatedMedia();
+  clearSelectedMedia();
   
   socket.emit('typing', { chatId: activeChat.id, userId: currentUser.id, isTyping: false, name: currentUser.name });
 }
@@ -475,17 +509,20 @@ function appendMessage(msg) {
     let mediaHtml = '';
     if (msg.mediaUrl) {
       mediaHtml = `
-        <div class="mb-2 max-w-xs overflow-hidden rounded-lg">
+        <div class="mb-2 max-w-[200px] md:max-w-xs overflow-hidden rounded-lg">
           <img src="${msg.mediaUrl}" alt="Media attachment" class="w-full object-cover">
         </div>
       `;
     }
 
+    // Render message body only if text is not empty
+    let textHtml = msg.text ? `<div>${escapeHTML(msg.text)}</div>` : '';
+
     msgEl.innerHTML = `
       <div class="max-w-[85%] md:max-w-[70%]">
         <div class="px-4 py-2.5 rounded-2xl text-sm shadow-md ${bubbleClass}">
           ${mediaHtml}
-          <div>${escapeHTML(msg.text)}</div>
+          ${textHtml}
         </div>
         <div class="text-[9px] text-slate-500 mt-1 ${isMe ? 'text-right' : 'text-left'}">
           ${formatTime(msg.timestamp)}
@@ -675,15 +712,100 @@ function toggleInfoPanel() {
   }
 }
 
-// Simulated Media Uploads
-function triggerSimulatedMedia() {
-  simulatedMediaData = 'https://images.unsplash.com/photo-1579783900882-c0d3dad7b119?w=300&auto=format&fit=crop&q=60';
-  document.getElementById('media-preview').classList.remove('hidden');
+// --- Admin Panel Actions ---
+
+function tryAdminAccess() {
+  const code = prompt('Yönetici Giriş Kodunu Girin:');
+  if (code === 'admin1803') {
+    localStorage.setItem('streak_chat_admin', 'true');
+    showAdminPanel();
+    alert('Yönetici modu aktif edildi! Arayüzün sağındaki Detaylar panelinin en altında Yönetici panelini bulabilirsiniz.');
+  } else if (code !== null) {
+    alert('Hatalı Yönetici Kodu!');
+  }
 }
 
-function clearSimulatedMedia() {
-  simulatedMediaData = null;
-  document.getElementById('media-preview').classList.add('hidden');
+function checkAdminPersisted() {
+  if (localStorage.getItem('streak_chat_admin') === 'true') {
+    showAdminPanel();
+  }
+}
+
+function showAdminPanel() {
+  const adminPanel = document.getElementById('admin-debug-section');
+  if (adminPanel) {
+    adminPanel.classList.remove('hidden');
+  }
+}
+
+async function triggerTimeWarp(hours) {
+  if (!activeChat) return alert('Lütfen önce bir sohbet seçin.');
+  try {
+    const res = await fetch('/api/debug/time-warp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chatId: activeChat.id, hours })
+    });
+    const data = await res.json();
+    if (data.success) {
+      activeChat = { ...activeChat, ...data.chat };
+      updateStreakPanel();
+      startCountdown();
+      await loadChats();
+      const msgRes = await fetch(`/api/chats/${activeChat.id}/messages`);
+      const messages = await msgRes.json();
+      const messagesContainer = document.getElementById('messages-container');
+      messagesContainer.innerHTML = '';
+      messages.forEach(msg => appendMessage(msg));
+      scrollToBottom();
+    }
+  } catch (err) {
+    console.error('Error time warping:', err);
+  }
+}
+
+async function grantFreezeDebug() {
+  if (!currentUser) return;
+  try {
+    const res = await fetch('/api/debug/grant-freeze', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: currentUser.id })
+    });
+    const data = await res.json();
+    if (data.success) {
+      await refreshUserProfile();
+    }
+  } catch (err) {
+    console.error('Error granting freeze:', err);
+  }
+}
+
+async function simulatePartnerMessage() {
+  if (!activeChat) return alert('Lütfen önce bir sohbet seçin.');
+  const isUser1 = activeChat.user1Id === currentUser.id;
+  const partnerId = isUser1 ? activeChat.user2Id : activeChat.user1Id;
+  const partnerName = activeChat.partnerName;
+
+  socket.emit('send-message', {
+    chatId: activeChat.id,
+    senderId: partnerId,
+    text: `[SİMÜLASYON] Merhaba! Ben ${partnerName}. Serimizi sürdürmek için yazdım.`
+  });
+}
+
+async function resetDbDebug() {
+  if (!confirm('Tüm veritabanı sıfırlanacak. Emin misiniz?')) return;
+  try {
+    const res = await fetch('/api/debug/reset', { method: 'POST' });
+    if (res.ok) {
+      localStorage.clear();
+      alert('Sistem başarıyla sıfırlandı. Sayfa yenileniyor...');
+      window.location.reload();
+    }
+  } catch (err) {
+    console.error('Error resetting database:', err);
+  }
 }
 
 // Copy Code
