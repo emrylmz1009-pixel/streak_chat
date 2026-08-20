@@ -11,10 +11,22 @@ let mediaRecorder = null;
 let audioChunks = [];
 let isRecording = false;
 
+// 10 Features variables
+let selectedDocData = null; // Holds Base64 document content
+let selectedDocName = '';
+let selectedDocSize = 0;
+let viewOnceActive = false;
+let editingMessageId = null;
+let quotedMessage = null;
+let html5QrcodeScanner = null;
+let onlinePartners = new Set(); // set of online userIds
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('resize', updateMobileView);
   checkAdminPersisted();
+  checkThemePersisted();
+  setupScreenshotDetection();
   await detectIp();
   await checkAutoLogin();
 });
@@ -234,12 +246,33 @@ function initSocket() {
 
   socket.on('connect', () => {
     console.log('Connected to server');
+    if (currentUser) {
+      socket.emit('register-user', { userId: currentUser.id });
+    }
   });
 
   socket.on('message', (msg) => {
     if (activeChat && msg.chatId === activeChat.id) {
       appendMessage(msg);
       scrollToBottom();
+
+      // Send read confirmation if we are receiving a message in active view
+      if (msg.senderId !== currentUser.id) {
+        socket.emit('read-messages', { chatId: activeChat.id, userId: currentUser.id });
+      }
+    }
+  });
+
+  socket.on('messages-read', (data) => {
+    if (activeChat && data.chatId === activeChat.id) {
+      // Reload messages list to update tick indicators
+      refreshMessages();
+    }
+  });
+
+  socket.on('message-updated', (updatedMsg) => {
+    if (activeChat && updatedMsg.chatId === activeChat.id) {
+      refreshMessages();
     }
   });
 
@@ -289,17 +322,33 @@ function initSocket() {
     loadChats();
   });
 
-  // Self-Destruct trigger real-time handler
-  socket.on('chat-destroyed', (data) => {
+  socket.on('chat-cleared', (data) => {
     if (activeChat && data.chatId === activeChat.id) {
-      alert('Bu sohbet odası karşı taraf veya sizin tarafınızdan kalıcı olarak imha edildi!');
-      activeChat = null;
-      document.getElementById('chat-active-view').classList.add('hidden');
-      document.getElementById('chat-info-panel').classList.add('hidden');
-      document.getElementById('chat-empty-state').classList.remove('hidden');
+      document.getElementById('messages-container').innerHTML = '';
+      appendMessage({
+        isSystem: true,
+        text: 'Sohbet geçmişi temizlendi.'
+      });
       loadChats();
-      navigateMobile('list');
     }
+  });
+
+  socket.on('online-status-update', (data) => {
+    if (data.isOnline) {
+      onlinePartners.add(data.userId);
+    } else {
+      onlinePartners.delete(data.userId);
+    }
+    
+    // Update current active chat indicators
+    if (activeChat) {
+      const isUser1 = activeChat.user1Id === currentUser.id;
+      const partnerId = isUser1 ? activeChat.user2Id : activeChat.user1Id;
+      if (partnerId === data.userId) {
+        updatePartnerOnlineStatus(data.isOnline);
+      }
+    }
+    loadChats();
   });
 }
 
@@ -309,6 +358,22 @@ async function loadChats() {
   try {
     const res = await fetch(`/api/chats/${currentUser.id}`);
     const chats = await res.json();
+
+    // Query online statuses
+    const partnerIds = chats.map(c => c.user1Id === currentUser.id ? c.user2Id : c.user1Id);
+    const statusRes = await fetch('/api/users/online-statuses', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userIds: partnerIds })
+    });
+    const statuses = await statusRes.json();
+    
+    // Update local onlinePartners set
+    Object.keys(statuses).forEach(uid => {
+      if (statuses[uid]) onlinePartners.add(uid);
+      else onlinePartners.delete(uid);
+    });
+
     const chatList = document.getElementById('chat-list');
     chatList.innerHTML = '';
 
@@ -321,19 +386,24 @@ async function loadChats() {
       const isSelected = activeChat && activeChat.id === chat.id;
       const item = document.createElement('div');
       item.className = `p-3 rounded-lg cursor-pointer transition-colors flex justify-between items-center ${
-        isSelected ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/40 text-slate-300'
+        isSelected ? 'bg-slate-800 text-white' : 'hover:bg-slate-800/40 text-slate-350'
       }`;
       item.onclick = () => selectChat(chat.id);
 
+      const otherUserId = chat.user1Id === currentUser.id ? chat.user2Id : chat.user1Id;
+      const isOnline = onlinePartners.has(otherUserId);
       const hasStreak = chat.streakCount > 0;
 
       item.innerHTML = `
         <div class="flex items-center gap-2.5 overflow-hidden">
-          <div class="w-8 h-8 rounded-full bg-slate-700 text-white font-bold text-xs flex items-center justify-center shrink-0">
+          <div class="w-8 h-8 rounded-full bg-slate-700 text-white font-bold text-xs flex items-center justify-center shrink-0 relative">
             ${chat.partnerName.split(' ').map(n => n[0]).join('')}
+            <span class="absolute bottom-0 right-0 w-2.5 h-2.5 rounded-full border border-slate-900 ${isOnline ? 'bg-emerald-500' : 'bg-slate-500'}"></span>
           </div>
           <div class="overflow-hidden">
-            <div class="font-semibold text-sm truncate">${chat.partnerName}</div>
+            <div class="font-semibold text-sm truncate flex items-center gap-1">
+              <span>${chat.partnerName}</span>
+            </div>
             <div class="text-xs text-slate-400 truncate">${chat.lastMessage}</div>
           </div>
         </div>
@@ -343,7 +413,7 @@ async function loadChats() {
               <i class="fa-solid fa-fire animate-pulse text-[10px]"></i> ${chat.streakCount}
             </div>
           ` : `
-            <div class="text-[10px] text-slate-500 border border-slate-800 px-1.5 py-0.5 rounded-full">0 🔥</div>
+            <div class="text-[10px] text-slate-500 border border-slate-850 px-1.5 py-0.5 rounded-full">0 🔥</div>
           `}
           <span class="text-[9px] text-slate-500 mt-1">${formatTimeAgo(chat.lastMessageTime)}</span>
         </div>
@@ -376,13 +446,16 @@ async function selectChat(chatId) {
     document.getElementById('partner-code-sub').innerText = `Kod: ${activeChat.partnerCode}`;
     document.getElementById('partner-avatar').innerText = activeChat.partnerName.split(' ').map(n => n[0]).join('');
 
-    const msgRes = await fetch(`/api/chats/${chatId}/messages`);
-    const messages = await msgRes.json();
-    
-    const messagesContainer = document.getElementById('messages-container');
-    messagesContainer.innerHTML = '';
-    messages.forEach(msg => appendMessage(msg));
-    scrollToBottom();
+    // Update partner online status indicators
+    const partnerId = activeChat.user1Id === currentUser.id ? activeChat.user2Id : activeChat.user1Id;
+    const isOnline = onlinePartners.has(partnerId);
+    updatePartnerOnlineStatus(isOnline);
+
+    // Refresh messages
+    await refreshMessages();
+
+    // Confirm read receipts
+    socket.emit('read-messages', { chatId, userId: currentUser.id });
 
     document.getElementById('chat-info-panel').classList.remove('hidden');
     updateStreakPanel();
@@ -390,6 +463,35 @@ async function selectChat(chatId) {
     navigateMobile('chat');
   } catch (err) {
     console.error('Error selecting chat:', err);
+  }
+}
+
+async function refreshMessages() {
+  if (!activeChat) return;
+  try {
+    const msgRes = await fetch(`/api/chats/${activeChat.id}/messages`);
+    const messages = await msgRes.json();
+    
+    const messagesContainer = document.getElementById('messages-container');
+    messagesContainer.innerHTML = '';
+    messages.forEach(msg => appendMessage(msg));
+    scrollToBottom();
+  } catch (err) {
+    console.error('Error refreshing messages:', err);
+  }
+}
+
+function updatePartnerOnlineStatus(isOnline) {
+  const indicator = document.getElementById('partner-online-indicator');
+  const txt = document.getElementById('partner-online-text');
+  if (isOnline) {
+    indicator.className = "absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 bg-emerald-500";
+    txt.innerText = "Çevrimiçi";
+    txt.className = "text-[9px] px-1.5 py-0.5 rounded-full bg-emerald-950 text-emerald-450 text-emerald-400 font-semibold uppercase";
+  } else {
+    indicator.className = "absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 bg-slate-500";
+    txt.innerText = "Çevrimdışı";
+    txt.className = "text-[9px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 font-semibold uppercase";
   }
 }
 
@@ -429,27 +531,29 @@ async function startMatch() {
   }
 }
 
-// Media Selection & Conversion
+// Image Selection & Conversion
 function handleMediaSelect(event) {
   const file = event.target.files[0];
   if (!file) return;
 
-  // Max size limit: 3MB
   if (file.size > 3 * 1024 * 1024) {
     alert('Resim boyutu çok büyük (Maksimum 3MB).');
     event.target.value = '';
     return;
   }
 
+  // Clear any existing doc selection
+  clearSelectedDoc();
+
   const reader = new FileReader();
   reader.onload = function (e) {
-    selectedMediaData = e.target.result; // Base64 Data URL
+    selectedMediaData = e.target.result;
     
     const previewContainer = document.getElementById('media-preview');
     previewContainer.innerHTML = `
       <div class="relative inline-block m-1">
-        <img src="${selectedMediaData}" class="w-16 h-16 object-cover rounded border border-slate-700">
-        <button type="button" onclick="clearSelectedMedia()" class="absolute -top-2 -right-2 bg-red-650 hover:bg-red-750 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] shadow font-bold">
+        <img src="${selectedMediaData}" class="w-16 h-16 object-cover rounded border border-slate-750">
+        <button type="button" onclick="clearSelectedMedia()" class="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 text-white rounded-full w-4.5 h-4.5 flex items-center justify-center text-[10px] shadow font-bold">
           <i class="fa-solid fa-times"></i>
         </button>
       </div>
@@ -465,6 +569,107 @@ function clearSelectedMedia() {
   const previewContainer = document.getElementById('media-preview');
   previewContainer.innerHTML = '';
   previewContainer.classList.add('hidden');
+}
+
+// Document Selection & Conversion
+function handleDocSelect(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (file.size > 3 * 1024 * 1024) {
+    alert('Dosya boyutu çok büyük (Maksimum 3MB).');
+    event.target.value = '';
+    return;
+  }
+
+  // Clear any image selection
+  clearSelectedMedia();
+
+  selectedDocName = file.name;
+  selectedDocSize = file.size;
+
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    selectedDocData = e.target.result; // Base64 content
+    
+    const previewContainer = document.getElementById('media-preview');
+    previewContainer.innerHTML = `
+      <div class="flex items-center gap-2.5 bg-slate-900 border border-slate-800 p-2.5 rounded m-1 max-w-xs text-xs text-slate-200">
+        <i class="fa-solid fa-file-lines text-indigo-400 text-lg"></i>
+        <div class="truncate grow">
+          <p class="font-bold truncate">${escapeHTML(selectedDocName)}</p>
+          <p class="text-[10px] text-slate-500">${(selectedDocSize / 1024).toFixed(1)} KB</p>
+        </div>
+        <button type="button" onclick="clearSelectedDoc()" class="text-red-400 hover:text-red-300 font-bold p-1">
+          <i class="fa-solid fa-times"></i>
+        </button>
+      </div>
+    `;
+    previewContainer.classList.remove('hidden');
+  };
+  reader.readAsDataURL(file);
+}
+
+function clearSelectedDoc() {
+  selectedDocData = null;
+  selectedDocName = '';
+  selectedDocSize = 0;
+  document.getElementById('doc-file-input').value = '';
+  const previewContainer = document.getElementById('media-preview');
+  previewContainer.innerHTML = '';
+  previewContainer.classList.add('hidden');
+}
+
+// Toggle View Once mode
+function toggleViewOnceMode() {
+  viewOnceActive = !viewOnceActive;
+  const btnIcon = document.getElementById('view-once-btn-icon');
+  if (viewOnceActive) {
+    btnIcon.className = 'fa-solid fa-1 text-base border border-yellow-500 text-yellow-500 rounded-full px-1 font-bold';
+    alert('Tek Seferlik Görsel modu aktif! Göndereceğiniz görsel veya dosya karşı tarafça sadece bir kez görüntülenebilir.');
+  } else {
+    btnIcon.className = 'fa-solid fa-1 text-base border border-slate-500 rounded-full px-1 font-bold';
+  }
+}
+
+// Reply Quote click action
+function quoteMessage(msgId, senderName, msgText) {
+  quotedMessage = { id: msgId, text: msgText, senderName };
+  
+  document.getElementById('reply-preview-sender').innerText = senderName;
+  document.getElementById('reply-preview-text').innerText = msgText;
+  document.getElementById('reply-preview-bar').classList.remove('hidden');
+  document.getElementById('message-text-input').focus();
+}
+
+function clearReplyQuote() {
+  quotedMessage = null;
+  document.getElementById('reply-preview-bar').classList.add('hidden');
+}
+
+// Edit Own message
+function initiateEditMessage(msgId, originalText) {
+  editingMessageId = msgId;
+  const cleanedText = originalText.replace(' (Düzenlendi)', '');
+  
+  const textInput = document.getElementById('message-text-input');
+  textInput.value = cleanedText;
+  textInput.focus();
+
+  // Show visual cue that we are editing
+  const sendBtn = document.getElementById('send-msg-btn');
+  sendBtn.innerHTML = 'Kaydet <i class="fa-solid fa-check"></i>';
+  sendBtn.className = 'bg-orange-600 hover:bg-orange-700 text-white p-2 px-4 rounded text-sm font-semibold transition flex items-center gap-1';
+}
+
+function cancelEditMode() {
+  editingMessageId = null;
+  const textInput = document.getElementById('message-text-input');
+  textInput.value = '';
+  
+  const sendBtn = document.getElementById('send-msg-btn');
+  sendBtn.innerHTML = '<span class="hidden md:inline">Gönder</span> <i class="fa-solid fa-paper-plane"></i>';
+  sendBtn.className = 'bg-indigo-600 hover:bg-indigo-700 text-white p-2 px-4 rounded text-sm font-semibold transition flex items-center gap-1';
 }
 
 // Voice Recorder Functions
@@ -494,12 +699,16 @@ async function toggleVoiceRecord() {
             senderId: currentUser.id,
             text: '🎤 Sesli Not',
             mediaUrl: base64Audio,
-            isAudio: true
+            isAudio: true,
+            isViewOnce: viewOnceActive
           });
+          
+          if (viewOnceActive) {
+            toggleViewOnceMode(); // reset
+          }
         };
         reader.readAsDataURL(audioBlob);
 
-        // Stop all track media
         stream.getTracks().forEach(track => track.stop());
       };
 
@@ -523,13 +732,13 @@ async function toggleVoiceRecord() {
   }
 }
 
-// Destroy Chat Permanently
-async function destroyChat() {
+// Clear Chat History Permanently
+async function clearChatHistory() {
   if (!activeChat) return;
-  if (!confirm('DİKKAT! Bu sohbet odası ve tüm mesaj geçmişi kalıcı olarak silinecektir. Geri alınamaz! Emin misiniz?')) return;
+  if (!confirm('Sohbet geçmişindeki tüm mesajlar her iki taraf için kalıcı olarak silinecektir. Bu işlem geri alınamaz! Emin misiniz?')) return;
 
   try {
-    const res = await fetch(`/api/chats/${activeChat.id}/destroy`, {
+    const res = await fetch(`/api/chats/${activeChat.id}/clear`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ userId: currentUser.id })
@@ -537,45 +746,76 @@ async function destroyChat() {
     
     const data = await res.json();
     if (data.success) {
-      // Local state reset
-      activeChat = null;
-      document.getElementById('chat-active-view').classList.add('hidden');
-      document.getElementById('chat-info-panel').classList.add('hidden');
-      document.getElementById('chat-empty-state').classList.remove('hidden');
+      document.getElementById('messages-container').innerHTML = '';
+      appendMessage({
+        isSystem: true,
+        text: 'Sohbet geçmişi temizlendi.'
+      });
       await loadChats();
-      navigateMobile('list');
-      alert('Sohbet imha edildi.');
+      alert('Sohbet geçmişi başarıyla temizlendi.');
     } else {
-      alert('Sohbet imha edilirken hata oluştu.');
+      alert('Sohbet geçmişi temizlenirken hata oluştu.');
     }
   } catch (err) {
-    console.error('Error destroying chat:', err);
+    console.error('Error clearing chat:', err);
     alert('Bağlantı hatası oluştu.');
   }
 }
 
-// Send Message
-function sendMessage(event) {
+// Send Message (Supports Add/Edit/Reply Quote)
+async function sendMessage(event) {
   event.preventDefault();
   if (!activeChat || !currentUser) return;
 
   const textInput = document.getElementById('message-text-input');
   const text = textInput.value.trim();
   
-  if (!text && !selectedMediaData) return;
+  if (!text && !selectedMediaData && !selectedDocData) return;
 
+  // Edit Message Request
+  if (editingMessageId) {
+    try {
+      const res = await fetch(`/api/chats/${activeChat.id}/messages/${editingMessageId}/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id, newText: text })
+      });
+      if (res.ok) {
+        cancelEditMode();
+      } else {
+        const err = await res.json();
+        alert(err.error || 'Mesaj düzenlenemedi.');
+      }
+    } catch (err) {
+      console.error(err);
+    }
+    return;
+  }
+
+  // Normal Send Message
   const messageData = {
     chatId: activeChat.id,
     senderId: currentUser.id,
     text: text || '',
-    mediaUrl: selectedMediaData,
-    isAudio: false
+    mediaUrl: selectedMediaData || selectedDocData || null,
+    isAudio: false,
+    isFile: selectedDocData ? true : false,
+    fileName: selectedDocData ? selectedDocName : null,
+    fileSize: selectedDocData ? selectedDocSize : null,
+    replyTo: quotedMessage,
+    isViewOnce: viewOnceActive
   };
 
   socket.emit('send-message', messageData);
   
   textInput.value = '';
   clearSelectedMedia();
+  clearSelectedDoc();
+  clearReplyQuote();
+  
+  if (viewOnceActive) {
+    toggleViewOnceMode(); // reset after sending
+  }
   
   socket.emit('typing', { chatId: activeChat.id, userId: currentUser.id, isTyping: false, name: currentUser.name });
 }
@@ -589,6 +829,60 @@ function emitTyping() {
     isTyping: true,
     name: currentUser.name
   });
+}
+
+// Open View Once Modal & Wipe from Server
+async function openViewOnceModal(messageId, mediaUrl, isAudio, isFile) {
+  if (!mediaUrl) {
+    alert('Bu tek seferlik görsel zaten görüntülendi.');
+    return;
+  }
+
+  // Confirm viewing
+  if (!confirm('Bu tek seferlik bir görseldir. Modalı kapattığınızda kalıcı olarak silinecektir. Şimdi açmak istiyor musunuz?')) return;
+
+  const viewer = document.createElement('div');
+  viewer.id = 'view-once-overlay';
+  viewer.className = 'fixed inset-0 bg-black/98 z-50 flex flex-col items-center justify-center p-4';
+
+  let contentHtml = '';
+  if (isFile) {
+    contentHtml = `
+      <div class="text-white text-center flex flex-col gap-3">
+        <i class="fa-solid fa-file-arrow-down text-6xl text-indigo-400"></i>
+        <h4 class="font-bold">Dosyayı İndirin</h4>
+        <a href="${mediaUrl}" download class="bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-lg font-bold">İndir</a>
+      </div>
+    `;
+  } else if (isAudio) {
+    contentHtml = `<audio src="${mediaUrl}" controls class="w-72 bg-slate-900 border border-slate-800 rounded p-2"></audio>`;
+  } else {
+    contentHtml = `<img src="${mediaUrl}" class="max-w-full max-h-[85vh] object-contain rounded shadow-2xl">`;
+  }
+
+  viewer.innerHTML = `
+    ${contentHtml}
+    <button onclick="closeViewOnceModal('${messageId}')" class="absolute top-6 right-6 bg-slate-900 text-white rounded-full w-10 h-10 flex items-center justify-center font-bold text-lg hover:bg-slate-800 shadow">
+      <i class="fa-solid fa-times"></i>
+    </button>
+  `;
+
+  document.body.appendChild(viewer);
+}
+
+async function closeViewOnceModal(messageId) {
+  const viewer = document.getElementById('view-once-overlay');
+  if (viewer) viewer.remove();
+
+  try {
+    await fetch(`/api/chats/${activeChat.id}/messages/${messageId}/view-once`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: currentUser.id })
+    });
+  } catch (err) {
+    console.error('Error confirming view-once read:', err);
+  }
 }
 
 // Render Single Message
@@ -605,19 +899,47 @@ function appendMessage(msg) {
     `;
   } else {
     const isMe = msg.senderId === currentUser.id;
-    msgEl.className = `flex ${isMe ? 'justify-end' : 'justify-start'} mb-3`;
+    msgEl.className = `flex ${isMe ? 'justify-end' : 'justify-start'} mb-3 relative group`;
     
     let bubbleClass = isMe 
       ? 'bg-indigo-650 text-white rounded-br-none border border-indigo-600'
       : 'bg-slate-900 text-slate-100 rounded-bl-none border border-slate-800';
 
     let mediaHtml = '';
-    if (msg.mediaUrl) {
+    const hasViewedOnce = msg.isViewOnce && (!msg.mediaUrl || (msg.viewedBy && msg.viewedBy.includes(currentUser.id)));
+
+    if (msg.isViewOnce) {
+      if (hasViewedOnce) {
+        mediaHtml = `
+          <div class="flex items-center gap-2 text-xs text-slate-500 italic mb-1.5 p-1 bg-slate-950/40 border border-slate-900 rounded select-none">
+            <i class="fa-solid fa-lock text-sm"></i> Açılmış Tek Seferlik Medya
+          </div>
+        `;
+      } else {
+        mediaHtml = `
+          <button type="button" onclick="openViewOnceModal('${msg.id}', '${msg.mediaUrl}', ${msg.isAudio}, ${msg.isFile})" 
+                  class="flex items-center gap-2 text-xs font-bold text-yellow-450 text-yellow-500 hover:text-yellow-400 border border-yellow-900/50 bg-yellow-950/20 p-2 rounded.5 rounded-lg mb-1.5 transition">
+            <i class="fa-solid fa-eye animate-pulse text-sm"></i> Tek Seferlik Medyayı Aç
+          </button>
+        `;
+      }
+    } else if (msg.mediaUrl) {
       if (msg.isAudio) {
         mediaHtml = `
           <div class="mb-2 max-w-xs">
             <audio src="${msg.mediaUrl}" controls class="w-full h-8 outline-none rounded bg-slate-950 border border-slate-800"></audio>
           </div>
+        `;
+      } else if (msg.isFile) {
+        mediaHtml = `
+          <a href="${msg.mediaUrl}" download="${msg.fileName}" 
+             class="flex items-center gap-2.5 bg-slate-950 hover:bg-slate-950/80 border border-slate-800 p-2.5 rounded-xl m-1 text-xs text-slate-200 shadow-sm max-w-xs transition">
+            <i class="fa-solid fa-file-arrow-down text-indigo-400 text-xl shrink-0"></i>
+            <div class="truncate grow">
+              <p class="font-bold truncate">${escapeHTML(msg.fileName)}</p>
+              <p class="text-[10px] text-slate-500">${(msg.fileSize / 1024).toFixed(1)} KB</p>
+            </div>
+          </a>
         `;
       } else {
         mediaHtml = `
@@ -628,16 +950,62 @@ function appendMessage(msg) {
       }
     }
 
+    // Render Quoted reply box inside bubble if applicable
+    let replyHtml = '';
+    if (msg.replyTo) {
+      replyHtml = `
+        <div class="bg-slate-950/50 border-l-4 border-indigo-500 p-1.5 rounded text-[11px] mb-2 select-none">
+          <span class="font-bold text-indigo-400">${escapeHTML(msg.replyTo.senderName)}:</span>
+          <p class="text-slate-350 italic truncate">${escapeHTML(msg.replyTo.text)}</p>
+        </div>
+      `;
+    }
+
     let textHtml = msg.text ? `<div>${escapeHTML(msg.text)}</div>` : '';
 
+    // Render tick signs (Read Receipts)
+    let tickHtml = '';
+    if (isMe) {
+      if (msg.status === 'read') {
+        tickHtml = '<span class="text-indigo-400 ml-1 font-bold" title="Okundu"><i class="fa-solid fa-check-double text-[10px]"></i></span>';
+      } else if (msg.status === 'delivered') {
+        tickHtml = '<span class="text-slate-500 ml-1 font-bold" title="İletildi"><i class="fa-solid fa-check-double text-[10px]"></i></span>';
+      } else {
+        tickHtml = '<span class="text-slate-500 ml-1" title="Gönderildi"><i class="fa-solid fa-check text-[10px]"></i></span>';
+      }
+    }
+
+    // Message edit action (allowed only on own messages under 5 minutes old)
+    let actionButtonsHtml = '';
+    const elapsedMs = Date.now() - new Date(msg.timestamp).getTime();
+    const canEdit = isMe && (elapsedMs < 5 * 60 * 1000) && msg.text && !msg.isSystem;
+
+    actionButtonsHtml = `
+      <div class="absolute top-1/2 -translate-y-1/2 ${isMe ? '-left-12 flex-row' : '-right-12 flex-row-reverse'} items-center gap-1 hidden group-hover:flex transition z-20">
+        <button onclick="quoteMessage('${msg.id}', '${isMe ? 'Siz' : escapeHTML(activeChat.partnerName)}', '${escapeHTML(msg.text || '📸 Medya')}')" 
+                class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-300 w-5 h-5 rounded-full flex items-center justify-center text-[10px]" title="Yanıtla">
+          <i class="fa-solid fa-reply"></i>
+        </button>
+        ${canEdit ? `
+          <button onclick="initiateEditMessage('${msg.id}', '${escapeHTML(msg.text)}')" 
+                  class="bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-350 text-slate-300 w-5 h-5 rounded-full flex items-center justify-center text-[10px]" title="Düzenle">
+            <i class="fa-solid fa-pen"></i>
+          </button>
+        ` : ''}
+      </div>
+    `;
+
     msgEl.innerHTML = `
+      ${actionButtonsHtml}
       <div class="max-w-[85%] md:max-w-[70%]">
         <div class="px-4 py-2.5 rounded-2xl text-sm shadow-md ${bubbleClass}">
+          ${replyHtml}
           ${mediaHtml}
           ${textHtml}
         </div>
-        <div class="text-[9px] text-slate-500 mt-1 ${isMe ? 'text-right' : 'text-left'}">
+        <div class="text-[9px] text-slate-500 mt-1 flex items-center ${isMe ? 'justify-end' : 'justify-start'} select-none">
           ${formatTime(msg.timestamp)}
+          ${tickHtml}
         </div>
       </div>
     `;
@@ -749,7 +1117,7 @@ function navigateMobile(screenName) {
 }
 
 function updateMobileView() {
-  const isMobile = window.innerWidth < 768; // md breakpoint
+  const isMobile = window.innerWidth < 768;
   const sidebar = document.getElementById('sidebar-panel');
   const chatPanel = document.getElementById('chat-panel');
   const infoPanel = document.getElementById('chat-info-panel');
@@ -864,12 +1232,7 @@ async function triggerTimeWarp(hours) {
       updateStreakPanel();
       startCountdown();
       await loadChats();
-      const msgRes = await fetch(`/api/chats/${activeChat.id}/messages`);
-      const messages = await msgRes.json();
-      const messagesContainer = document.getElementById('messages-container');
-      messagesContainer.innerHTML = '';
-      messages.forEach(msg => appendMessage(msg));
-      scrollToBottom();
+      await refreshMessages();
     }
   } catch (err) {
     console.error('Error time warping:', err);
@@ -930,6 +1293,121 @@ function copyMyCode() {
   });
 }
 
+// --- Gündüz Modu (Theme Management) ---
+
+function toggleTheme() {
+  const isLight = document.body.classList.contains('light-theme');
+  if (isLight) {
+    document.body.classList.remove('light-theme');
+    localStorage.setItem('streak_chat_theme', 'dark');
+  } else {
+    document.body.classList.add('light-theme');
+    localStorage.setItem('streak_chat_theme', 'light');
+  }
+}
+
+function checkThemePersisted() {
+  if (localStorage.getItem('streak_chat_theme') === 'light') {
+    document.body.classList.add('light-theme');
+  }
+}
+
+// --- QR Match Generation & Scanning ---
+
+function showQrModal() {
+  if (!currentUser) return;
+  const qrUrl = `https://chart.googleapis.com/chart?chs=200x200&cht=qr&chl=${encodeURIComponent(currentUser.code)}`;
+  document.getElementById('qr-image-val').src = qrUrl;
+  document.getElementById('qr-code-val-text').innerText = currentUser.code;
+  document.getElementById('qr-modal').classList.remove('hidden');
+}
+
+function hideQrModal() {
+  document.getElementById('qr-modal').classList.add('hidden');
+}
+
+function startQrScanner() {
+  document.getElementById('qr-scanner-modal').classList.remove('hidden');
+  
+  html5QrcodeScanner = new Html5Qrcode("scanner-preview");
+  html5QrcodeScanner.start(
+    { facingMode: "environment" },
+    { fps: 10, qrbox: 250 },
+    qrCodeMessage => {
+      document.getElementById('match-code-input').value = qrCodeMessage;
+      stopQrScanner();
+      alert("QR Kod tarandı: " + qrCodeMessage);
+    },
+    errorMessage => {
+      // quiet errors
+    }
+  ).catch(err => {
+    console.error("Camera error:", err);
+    alert("Kameraya erişilemedi.");
+    stopQrScanner();
+  });
+}
+
+function stopQrScanner() {
+  if (html5QrcodeScanner) {
+    html5QrcodeScanner.stop().then(() => {
+      html5QrcodeScanner = null;
+      document.getElementById('qr-scanner-modal').classList.add('hidden');
+    }).catch(err => {
+      console.error(err);
+      document.getElementById('qr-scanner-modal').classList.add('hidden');
+    });
+  } else {
+    document.getElementById('qr-scanner-modal').classList.add('hidden');
+  }
+}
+
+// --- Screenshot & Copy Warning detection ---
+
+function setupScreenshotDetection() {
+  // Detect standard snippet screenshot hotkeys
+  document.addEventListener('keydown', (e) => {
+    if (!activeChat || !currentUser) return;
+    
+    // Catch standard print-screen or Meta+Shift+S (snipping tool shortcut)
+    if (e.key === 'PrintScreen' || (e.metaKey && e.shiftKey && e.key.toUpperCase() === 'S')) {
+      triggerScreenshotAlert();
+    }
+  });
+
+  // Detect copy event within messages container
+  const container = document.getElementById('messages-container');
+  if (container) {
+    container.addEventListener('copy', () => {
+      if (activeChat && currentUser) {
+        triggerScreenshotAlert();
+      }
+    });
+  }
+
+  // Detect focus loss (blur) which often indicates opening screenshot snippet tools
+  window.addEventListener('blur', () => {
+    if (activeChat && currentUser) {
+      // Trigger a delayed alert to prevent false alerts on quick clicks
+      setTimeout(() => {
+        if (document.activeElement && document.activeElement.tagName === 'IFRAME') return; // ignore iframe clicks
+        if (!document.hasFocus()) {
+          // Trigger alert if they left the window while chat is active
+          triggerScreenshotAlert();
+        }
+      }, 500);
+    }
+  });
+}
+
+function triggerScreenshotAlert() {
+  if (!activeChat || !currentUser) return;
+  socket.emit('screenshot-taken', {
+    chatId: activeChat.id,
+    userName: currentUser.name
+  });
+}
+
 // --- Formatting Helpers ---
 
 function formatTimeAgo(isoString) {
@@ -952,6 +1430,7 @@ function formatTime(isoString) {
 }
 
 function escapeHTML(str) {
+  if (!str) return '';
   return str.replace(/[&<>'"]/g, 
     tag => ({
       '&': '&amp;',

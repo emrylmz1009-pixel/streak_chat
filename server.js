@@ -47,6 +47,22 @@ function getRandomAnonName() {
   return `${adj} ${anim}`;
 }
 
+const badWords = ['salak', 'aptal', 'şerefsiz', 'gerizekalı', 'amk', 'piç', 'göt', 'sik', 'yarrak'];
+function filterText(text) {
+  if (!text) return text;
+  let filtered = text;
+  badWords.forEach(word => {
+    const regex = new RegExp(word, 'gi');
+    filtered = filtered.replace(regex, (match) => {
+      if (match.length <= 2) return match[0] + '*';
+      return match[0] + '*'.repeat(match.length - 2) + match[match.length - 1];
+    });
+  });
+  return filtered;
+}
+
+const onlineUsers = new Map();
+
 // Helper: Hash password with SHA256
 function hashPassword(password) {
   return crypto.createHash('sha256').update(password).digest('hex');
@@ -313,8 +329,8 @@ app.get('/api/chats/:chatId/messages', async (req, res) => {
   }
 });
 
-// Destroy/Self-Destruct Chat Permanently
-app.post('/api/chats/:chatId/destroy', async (req, res) => {
+// Clear Chat History Permanently
+app.post('/api/chats/:chatId/clear', async (req, res) => {
   try {
     const { chatId } = req.params;
     const { userId } = req.body;
@@ -326,23 +342,99 @@ app.post('/api/chats/:chatId/destroy', async (req, res) => {
       return res.status(403).json({ error: 'Yetkisiz işlem.' });
     }
 
-    // Remove chat from database
-    const chats = await db.getChats();
-    const updatedChats = chats.filter(c => c.id !== chatId);
-    await db.queueWrite('chats', updatedChats);
-
-    // Remove messages from database
+    // Remove messages from database for this chat
     const messages = await db.readTable('messages');
     const updatedMessages = messages.filter(m => m.chatId !== chatId);
     await db.queueWrite('messages', updatedMessages);
 
+    // Update last message preview in chats
+    const chats = await db.getChats();
+    const chatIndex = chats.findIndex(c => c.id === chatId);
+    if (chatIndex !== -1) {
+      chats[chatIndex].lastMessage = 'Sohbet geçmişi temizlendi.';
+      chats[chatIndex].lastMessageTime = new Date().toISOString();
+      await db.queueWrite('chats', chats);
+    }
+
     // Emit real-time notification to chat room
-    io.to(`chat_${chatId}`).emit('chat-destroyed', { chatId });
+    io.to(`chat_${chatId}`).emit('chat-cleared', { chatId });
     
     // Emit global event to refresh sidebar lists
     io.emit('chat-list-updated');
 
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Get Online Statuses of multiple Users
+app.post('/api/users/online-statuses', (req, res) => {
+  const { userIds } = req.body;
+  if (!userIds || !Array.isArray(userIds)) return res.json({});
+  const statuses = {};
+  userIds.forEach(uid => {
+    statuses[uid] = onlineUsers.has(uid);
+  });
+  res.json(statuses);
+});
+
+// View Once message open verification & media wipe
+app.post('/api/chats/:chatId/messages/:messageId/view-once', async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const { userId } = req.body;
+
+    const messages = await db.readTable('messages');
+    const msgIndex = messages.findIndex(m => m.id === messageId);
+    if (msgIndex !== -1) {
+      const msg = messages[msgIndex];
+      if (msg.isViewOnce) {
+        if (!msg.viewedBy) msg.viewedBy = [];
+        if (!msg.viewedBy.includes(userId)) {
+          msg.viewedBy.push(userId);
+          
+          // If the receiver viewed it, wipe out the mediaUrl immediately to protect privacy
+          if (msg.senderId !== userId) {
+            msg.mediaUrl = null; 
+          }
+          
+          await db.queueWrite('messages', messages);
+          io.to(`chat_${chatId}`).emit('message-updated', msg);
+        }
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Edit Sent Message text (within 5 minutes limit)
+app.post('/api/chats/:chatId/messages/:messageId/edit', async (req, res) => {
+  try {
+    const { chatId, messageId } = req.params;
+    const { userId, newText } = req.body;
+
+    const messages = await db.readTable('messages');
+    const msgIndex = messages.findIndex(m => m.id === messageId);
+    if (msgIndex === -1) return res.status(404).json({ error: 'Mesaj bulunamadı.' });
+
+    const msg = messages[msgIndex];
+    if (msg.senderId !== userId) return res.status(403).json({ error: 'Yetkisiz işlem.' });
+
+    // Check if within 5 mins
+    const elapsedMs = Date.now() - new Date(msg.timestamp).getTime();
+    if (elapsedMs > 5 * 60 * 1000) {
+      return res.status(400).json({ error: 'Sadece son 5 dakikadaki mesajlar düzenlenebilir.' });
+    }
+
+    msg.text = filterText(newText) + ' (Düzenlendi)';
+    await db.queueWrite('messages', messages);
+
+    io.to(`chat_${chatId}`).emit('message-updated', msg);
+    io.emit('chat-list-updated');
+    res.json({ success: true, message: msg });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -424,6 +516,13 @@ app.post('/api/debug/reset', async (req, res) => {
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id);
 
+  socket.on('register-user', ({ userId }) => {
+    socket.userId = userId;
+    onlineUsers.set(userId, socket.id);
+    console.log(`User registered: ${userId} -> Socket ${socket.id}`);
+    io.emit('online-status-update', { userId, isOnline: true });
+  });
+
   socket.on('join-chat', ({ chatId }) => {
     socket.join(`chat_${chatId}`);
     console.log(`Socket ${socket.id} joined room chat_${chatId}`);
@@ -435,13 +534,27 @@ io.on('connection', (socket) => {
       const chat = await db.getChatById(chatId);
       if (!chat) return;
 
+      const otherUserId = chat.user1Id === senderId ? chat.user2Id : chat.user1Id;
+      const isPartnerOnline = onlineUsers.has(otherUserId);
+      const room = io.sockets.adapter.rooms.get(`chat_${chatId}`);
+      const partnerSocketId = onlineUsers.get(otherUserId);
+      const isPartnerInRoom = room && room.has(partnerSocketId);
+
       const message = {
         id: 'msg_' + Math.random().toString(36).substr(2, 9),
         chatId,
         senderId,
-        text,
+        text: filterText(text),
         mediaUrl: mediaUrl || null,
+        isAudio: data.isAudio || false,
+        isFile: data.isFile || false,
+        fileName: data.fileName || null,
+        fileSize: data.fileSize || null,
+        replyTo: data.replyTo || null,
+        isViewOnce: data.isViewOnce || false,
+        viewedBy: [],
         isSystem: false,
+        status: isPartnerInRoom ? 'read' : (isPartnerOnline ? 'delivered' : 'sent'),
         timestamp: new Date().toISOString()
       };
 
@@ -466,12 +579,53 @@ io.on('connection', (socket) => {
     }
   });
 
+  socket.on('read-messages', async ({ chatId, userId }) => {
+    try {
+      const messages = await db.getMessages(chatId);
+      let changed = false;
+      messages.forEach(m => {
+        if (m.senderId !== userId && m.status !== 'read') {
+          m.status = 'read';
+          changed = true;
+        }
+      });
+      if (changed) {
+        const allMessages = await db.readTable('messages');
+        const otherMessages = allMessages.filter(m => m.chatId !== chatId);
+        const combined = [...otherMessages, ...messages];
+        await db.queueWrite('messages', combined);
+
+        io.to(`chat_${chatId}`).emit('messages-read', { chatId });
+      }
+    } catch (err) {
+      console.error('Error handling read-messages:', err);
+    }
+  });
+
+  socket.on('screenshot-taken', ({ chatId, userName }) => {
+    const systemMsg = {
+      id: 'msg_' + Math.random().toString(36).substr(2, 9),
+      chatId,
+      senderId: 'system',
+      text: `⚠️ ${userName} ekran görüntüsü almış veya sohbeti kopyalamış olabilir!`,
+      isSystem: true,
+      timestamp: new Date().toISOString()
+    };
+    db.saveMessage(systemMsg).then(() => {
+      io.to(`chat_${chatId}`).emit('message', systemMsg);
+    });
+  });
+
   socket.on('typing', ({ chatId, userId, isTyping, name }) => {
     socket.to(`chat_${chatId}`).emit('typing', { userId, isTyping, name });
   });
 
   socket.on('disconnect', () => {
     console.log('Socket disconnected:', socket.id);
+    if (socket.userId) {
+      onlineUsers.delete(socket.userId);
+      io.emit('online-status-update', { userId: socket.userId, isOnline: false });
+    }
   });
 });
 

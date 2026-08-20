@@ -6,6 +6,8 @@
   <title>Anonim Streak Sohbet</title>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
+  <!-- html5-qrcode scanner library -->
+  <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
   <!-- FontAwesome for Icons -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
   <style>
@@ -22,6 +24,78 @@
     }
     ::-webkit-scrollbar-thumb:hover {
       background: #64748b;
+    }
+
+    /* Light Theme Overrides */
+    body.light-theme {
+      background-color: #f8fafc;
+      color: #0f172a;
+    }
+    body.light-theme #auth-screen {
+      background-color: #f8fafc;
+    }
+    body.light-theme .bg-slate-900,
+    body.light-theme header,
+    body.light-theme #sidebar-panel,
+    body.light-theme #chat-info-panel,
+    body.light-theme #chat-input-form,
+    body.light-theme #qr-modal > div,
+    body.light-theme #qr-scanner-modal > div {
+      background-color: #ffffff !important;
+      border-color: #e2e8f0 !important;
+      color: #334155 !important;
+    }
+    body.light-theme #chat-panel,
+    body.light-theme #chat-empty-state,
+    body.light-theme #messages-container {
+      background-color: #f1f5f9 !important;
+      color: #0f172a !important;
+    }
+    body.light-theme .text-white {
+      color: #0f172a !important;
+    }
+    body.light-theme .text-slate-400,
+    body.light-theme .text-slate-350 {
+      color: #64748b !important;
+    }
+    body.light-theme .border-slate-800,
+    body.light-theme .border-slate-700 {
+      border-color: #e2e8f0 !important;
+    }
+    body.light-theme #match-code-input,
+    body.light-theme #message-text-input,
+    body.light-theme input {
+      background-color: #f8fafc !important;
+      border-color: #cbd5e1 !important;
+      color: #0f172a !important;
+    }
+    body.light-theme .bg-slate-950 {
+      background-color: #f8fafc !important;
+    }
+    body.light-theme .bg-indigo-650,
+    body.light-theme .bg-indigo-600 {
+      background-color: #4f46e5 !important;
+    }
+    body.light-theme .bg-slate-900\/50,
+    body.light-theme .bg-slate-900\/30 {
+      background-color: #f8fafc !important;
+    }
+    body.light-theme .bg-slate-950\/50 {
+      background-color: #ffffff !important;
+    }
+    body.light-theme .bg-slate-800\/80 {
+      background-color: #f1f5f9 !important;
+      border-color: #cbd5e1 !important;
+    }
+    body.light-theme .text-indigo-400 {
+      color: #4f46e5 !important;
+    }
+    body.light-theme .bg-slate-900 {
+      background-color: #ffffff !important;
+      color: #0f172a !important;
+    }
+    body.light-theme .text-slate-100 {
+      color: #0f172a !important;
     }
   </style>
 </head>
@@ -105,9 +179,12 @@
     
     <!-- User Profile Header Summary -->
     <div id="profile-summary" class="hidden md:flex items-center gap-4">
-      <div class="bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/50 text-sm">
+      <div class="bg-slate-800/80 px-3 py-1.5 rounded-lg border border-slate-700/50 text-sm flex items-center">
         <span class="text-slate-400">Kodunuz:</span>
         <span id="user-code-header" class="font-mono font-bold text-indigo-400 ml-1">---</span>
+        <button onclick="showQrModal()" class="text-slate-400 hover:text-white ml-2" title="QR Kodu Göster">
+          <i class="fa-solid fa-qrcode"></i>
+        </button>
         <button onclick="copyMyCode()" class="text-slate-400 hover:text-white ml-2" title="Kopyala">
           <i class="fa-regular fa-copy"></i>
         </button>
@@ -149,19 +226,27 @@
             </div>
           </div>
           
-          <!-- Subtle Admin button -->
-          <button onclick="tryAdminAccess()" class="text-[9px] text-slate-700 hover:text-indigo-400 uppercase tracking-wider font-semibold focus:outline-none transition-colors">
-            Admin
-          </button>
+          <div class="flex items-center gap-2.5">
+            <!-- Theme toggle button -->
+            <button onclick="toggleTheme()" class="text-xs text-slate-500 hover:text-indigo-400 transition-colors focus:outline-none" title="Tema Değiştir">
+              <i class="fa-solid fa-circle-half-stroke"></i>
+            </button>
+
+            <!-- Subtle Admin button -->
+            <button onclick="tryAdminAccess()" class="text-[9px] text-slate-700 hover:text-indigo-400 uppercase tracking-wider font-semibold focus:outline-none transition-colors">
+              Admin
+            </button>
+          </div>
         </div>
         
         <!-- User Info Details for Mobile -->
         <div class="flex gap-2 mt-3 text-xs md:hidden">
           <div class="bg-slate-950 px-2.5 py-1.5 rounded border border-slate-800 flex justify-between items-center grow font-mono">
             <span class="text-slate-400">Kod: <span id="mobile-code-val" class="font-bold text-indigo-400">---</span></span>
-            <button onclick="copyMyCode()" class="text-slate-400 hover:text-white ml-2">
-              <i class="fa-regular fa-copy"></i>
-            </button>
+            <div class="flex items-center gap-1.5">
+              <button onclick="showQrModal()" class="text-slate-400 hover:text-white" title="QR Göster"><i class="fa-solid fa-qrcode text-xs"></i></button>
+              <button onclick="copyMyCode()" class="text-slate-400 hover:text-white" title="Kopyala"><i class="fa-regular fa-copy text-xs"></i></button>
+            </div>
           </div>
           <div class="bg-sky-950/30 border border-sky-900/40 px-2.5 py-1.5 rounded text-sky-400 font-bold flex items-center gap-1 shrink-0">
             <i class="fa-solid fa-snowflake"></i> <span id="mobile-freezes-val">0</span>
@@ -180,11 +265,18 @@
       <!-- Start Matching Box -->
       <div class="p-4 border-b border-slate-800 bg-slate-900/30">
         <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2">Eşleşme Başlat</h3>
-        <div class="flex gap-2">
+        <div class="flex gap-1.5">
           <input type="text" id="match-code-input" placeholder="X9K-821" 
                  class="bg-slate-820 border border-slate-700 text-white rounded px-3 py-1.5 text-sm font-mono focus:outline-none focus:border-indigo-500 grow placeholder:text-slate-600 bg-slate-800">
+          
+          <button onclick="startQrScanner()" 
+                  class="bg-slate-800 hover:bg-slate-700 text-slate-350 px-2.5 rounded border border-slate-700 flex items-center justify-center shrink-0" 
+                  title="QR Kod Tara">
+            <i class="fa-solid fa-camera"></i>
+          </button>
+          
           <button onclick="startMatch()" 
-                  class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-sm font-semibold transition flex items-center gap-1">
+                  class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded text-sm font-semibold transition flex items-center gap-1 shrink-0">
             <i class="fa-solid fa-link"></i> Bağlan
           </button>
         </div>
@@ -193,7 +285,9 @@
 
       <!-- Chats List -->
       <div class="flex-grow overflow-y-auto p-2">
-        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-2 py-2">Aktif Sohbetler</h3>
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider px-2 py-2 flex items-center justify-between">
+          <span>Aktif Sohbetler</span>
+        </h3>
         <div class="space-y-1" id="chat-list">
           <!-- Populated by JS -->
           <div class="text-slate-500 text-sm italic p-4 text-center">Aktif eşleşme bulunamadı</div>
@@ -218,12 +312,17 @@
           <div class="text-xs text-slate-400 uppercase tracking-wider mb-2">Sizin Paylaşım Kodunuz</div>
           <div class="flex items-center justify-between bg-slate-950 px-4 py-3 rounded-lg border border-slate-700 font-mono text-lg font-bold text-indigo-400">
             <span id="user-code-display">---</span>
-            <button onclick="copyMyCode()" class="text-slate-400 hover:text-white transition-colors" title="Kopyala">
-              <i class="fa-regular fa-copy"></i>
-            </button>
+            <div class="flex items-center gap-2">
+              <button onclick="showQrModal()" class="text-slate-400 hover:text-white transition-colors" title="QR Kodu Göster">
+                <i class="fa-solid fa-qrcode text-base"></i>
+              </button>
+              <button onclick="copyMyCode()" class="text-slate-400 hover:text-white transition-colors" title="Kopyala">
+                <i class="fa-regular fa-copy text-base"></i>
+              </button>
+            </div>
           </div>
           <p class="text-xs text-slate-500 mt-2">
-            Bu kodu arkadaşınızla paylaşarak rehber, telefon veya e-posta vermeden hemen sohbete başlayabilirsiniz!
+            Bu kodu arkadaşınızla paylaşarak veya QR kodu taratarak rehber veya telefon vermeden hemen sohbete başlayabilirsiniz!
           </p>
         </div>
       </div>
@@ -237,11 +336,16 @@
             <button onclick="navigateMobile('list')" class="md:hidden text-slate-400 hover:text-white mr-1.5 focus:outline-none p-1">
               <i class="fa-solid fa-arrow-left text-lg"></i>
             </button>
-            <div class="w-10 h-10 rounded-full bg-indigo-950 flex items-center justify-center font-bold text-indigo-300" id="partner-avatar">
+            <div class="w-10 h-10 rounded-full bg-indigo-950 flex items-center justify-center font-bold text-indigo-300 relative" id="partner-avatar">
               P
+              <!-- Online status dot -->
+              <span id="partner-online-indicator" class="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-slate-900 bg-slate-600"></span>
             </div>
             <div>
-              <h2 class="font-bold text-white text-sm md:text-base" id="partner-name">Partner Name</h2>
+              <div class="flex items-center gap-1.5">
+                <h2 class="font-bold text-white text-sm md:text-base" id="partner-name">Partner Name</h2>
+                <span id="partner-online-text" class="text-[9px] px-1.5 py-0.5 rounded-full bg-slate-800 text-slate-400 font-semibold uppercase">Çevrimdışı</span>
+              </div>
               <div class="text-[10px] md:text-xs text-slate-400" id="partner-code-sub">Kod: ---</div>
             </div>
           </div>
@@ -265,32 +369,54 @@
 
         <!-- Chat Input Form -->
         <form id="chat-input-form" onsubmit="sendMessage(event)" 
-              class="p-3 pb-6 md:pb-4 bg-slate-900 border-t border-slate-800 flex flex-col gap-2 shrink-0" 
-              style="padding-bottom: calc(20px + env(safe-area-inset-bottom));">
+              class="p-3 pb-8 md:pb-4 bg-slate-900 border-t border-slate-800 flex flex-col gap-2 shrink-0" 
+              style="padding-bottom: calc(36px + env(safe-area-inset-bottom));">
           
-          <!-- Hidden file input for actual media upload -->
+          <!-- Hidden Inputs for actual media/doc selection -->
           <input type="file" id="media-file-input" accept="image/*" class="hidden" onchange="handleMediaSelect(event)">
+          <input type="file" id="doc-file-input" accept=".pdf,.doc,.docx,.txt,.zip" class="hidden" onchange="handleDocSelect(event)">
           
-          <!-- Media Preview (holds thumbnail + remove button) -->
-          <div id="media-preview" class="hidden flex items-center mb-1 shrink-0 p-1 bg-slate-950 border border-slate-800 rounded">
-            <!-- Populated dynamically when file is chosen -->
+          <!-- Quoted Reply Preview Bar -->
+          <div id="reply-preview-bar" class="hidden bg-slate-950 border border-slate-800 p-2 rounded flex justify-between items-center shrink-0 mb-1 text-xs">
+            <div class="grow truncate">
+              <span class="text-indigo-400 font-bold"><i class="fa-solid fa-reply mr-1"></i> Yanıtla:</span>
+              <span id="reply-preview-sender" class="font-semibold text-slate-350 ml-1">...</span>
+              <p id="reply-preview-text" class="text-slate-400 italic truncate mt-0.5 ml-4">...</p>
+            </div>
+            <button type="button" onclick="clearReplyQuote()" class="text-red-400 p-1"><i class="fa-solid fa-times"></i></button>
           </div>
 
-          <div class="flex gap-2 items-center w-full">
+          <!-- Media Preview (holds thumbnail + remove button) -->
+          <div id="media-preview" class="hidden flex items-center mb-1 shrink-0 p-1 bg-slate-950 border border-slate-800 rounded">
+            <!-- Populated dynamically when file/doc is chosen -->
+          </div>
+
+          <div class="flex gap-1.5 items-center w-full">
             <!-- Actual Image Share -->
             <button type="button" onclick="document.getElementById('media-file-input').click()" class="text-slate-400 hover:text-white p-2" title="Fotoğraf Gönder">
               <i class="fa-regular fa-image text-lg"></i>
+            </button>
+
+            <!-- Document/File Share -->
+            <button type="button" onclick="document.getElementById('doc-file-input').click()" class="text-slate-400 hover:text-white p-2" title="Dosya Gönder">
+              <i class="fa-solid fa-paperclip text-lg"></i>
             </button>
             
             <!-- Voice Message Recorder Button -->
             <button type="button" id="voice-record-btn" onclick="toggleVoiceRecord()" class="text-slate-400 hover:text-red-500 p-2" title="Sesli Not Gönder">
               <i class="fa-solid fa-microphone text-lg" id="voice-mic-icon"></i>
             </button>
+
+            <!-- View-Once 1x Toggle Button -->
+            <button type="button" id="view-once-toggle-btn" onclick="toggleViewOnceMode()" class="text-slate-500 hover:text-yellow-500 p-2 transition-colors" title="Tek Seferlik Görsel">
+              <i class="fa-solid fa-1 text-base border border-slate-500 rounded-full px-1 font-bold" id="view-once-btn-icon"></i>
+            </button>
             
+            <!-- Text Input -->
             <input type="text" id="message-text-input" placeholder="Bir mesaj yazın..." oninput="emitTyping()"
                    class="bg-slate-950 border border-slate-800 rounded px-4 py-2 text-white text-sm focus:outline-none focus:border-indigo-500 grow">
             
-            <button type="submit" class="bg-indigo-600 hover:bg-indigo-700 text-white p-2 px-4 rounded text-sm font-semibold transition flex items-center gap-1">
+            <button type="submit" id="send-msg-btn" class="bg-indigo-600 hover:bg-indigo-700 text-white p-2 px-4 rounded text-sm font-semibold transition flex items-center gap-1">
               <span class="hidden md:inline">Gönder</span> <i class="fa-solid fa-paper-plane"></i>
             </button>
           </div>
@@ -363,14 +489,14 @@
         </div>
       </div>
 
-      <!-- Destruct Chat Card -->
+      <!-- Clear Chat History Card -->
       <div class="p-5 border-b border-slate-800">
         <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Güvenlik ve Gizlilik</h3>
-        <button onclick="destroyChat()" class="w-full bg-red-950/60 hover:bg-red-950 border border-red-900 text-red-400 py-2 rounded font-bold text-xs transition flex items-center justify-center gap-1">
-          <i class="fa-solid fa-bomb"></i> Sohbeti Kalıcı Olarak İmha Et
+        <button onclick="clearChatHistory()" class="w-full bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 py-2 rounded font-bold text-xs transition flex items-center justify-center gap-1">
+          <i class="fa-solid fa-eraser"></i> Sohbet Geçmişini Temizle
         </button>
         <p class="text-[10px] text-slate-500 mt-1.5 text-center leading-relaxed">
-          Bu işlem sohbet geçmişini ve bağlantıyı her iki taraf için veritabanından kalıcı olarak siler.
+          Bu işlem sohbet bağlantısını korur ancak bugüne kadarki tüm mesaj geçmişini her iki taraf için kalıcı olarak siler.
         </p>
       </div>
 
@@ -421,8 +547,37 @@
 
   </main>
 
+  <!-- QR Modal -->
+  <div id="qr-modal" class="fixed inset-0 bg-black/80 flex items-center justify-center p-4 z-50 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-sm w-full p-6 text-center shadow-2xl flex flex-col gap-4">
+      <h3 class="font-bold text-white text-lg">Eşleşme QR Kodunuz</h3>
+      <p class="text-slate-400 text-xs">Arkadaşınız bu kodu kendi telefonuyla taratarak sizinle anında eşleşebilir.</p>
+      <div class="bg-white p-3 rounded-lg mx-auto w-48 h-48 flex items-center justify-center border border-slate-750 shadow-inner">
+        <img id="qr-image-val" src="" alt="QR Code" class="w-full h-full">
+      </div>
+      <div class="text-indigo-400 font-mono font-bold text-lg select-all" id="qr-code-val-text">---</div>
+      <button onclick="hideQrModal()" class="w-full bg-slate-800 hover:bg-slate-700 text-white py-2 rounded-lg font-semibold text-sm transition mt-2">Kapat</button>
+    </div>
+  </div>
+
+  <!-- QR Scanner Modal -->
+  <div id="qr-scanner-modal" class="fixed inset-0 bg-black/95 flex items-center justify-center p-4 z-50 hidden">
+    <div class="bg-slate-900 border border-slate-800 rounded-2xl max-w-md w-full p-6 text-center shadow-2xl flex flex-col gap-4 relative">
+      <h3 class="font-bold text-white text-lg">Kameradan Tara</h3>
+      <p class="text-slate-400 text-xs">Kamerayı arkadaşınızın QR koduna doğrultun.</p>
+      
+      <!-- Scanner preview area -->
+      <div id="scanner-preview" class="w-full aspect-square rounded-lg border border-slate-800 bg-slate-950 overflow-hidden relative flex items-center justify-center text-slate-500 text-sm">
+        <i class="fa-solid fa-camera text-4xl animate-pulse"></i>
+      </div>
+
+      <div class="flex gap-2">
+        <button onclick="stopQrScanner()" class="w-full bg-slate-800 hover:bg-slate-700 text-white py-2.5 rounded-lg font-semibold text-sm transition">Kapat</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Script tags -->
-  <!-- Socket.io automatically serves this client endpoint -->
   <script src="/socket.io/socket.io.js"></script>
   <script src="/client.js"></script>
 </body>
