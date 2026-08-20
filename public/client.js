@@ -482,6 +482,8 @@ function showActiveCallUI() {
   overlay.classList.remove('hidden');
   document.getElementById('call-partner-label').textContent =
     document.getElementById('partner-name').textContent;
+  const statusEl = document.getElementById('call-status-text');
+  if (statusEl) statusEl.textContent = 'Bağlandı ✓';
   // Start call timer
   callSeconds = 0;
   clearInterval(callTimerInterval);

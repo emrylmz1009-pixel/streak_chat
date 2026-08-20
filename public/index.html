@@ -278,51 +278,117 @@
 
   <!-- ══════════════ VOICE CALL UI ══════════════ -->
 
-  <!-- Incoming Call Modal -->
-  <div id="incoming-call-modal" class="hidden fixed inset-0 z-[999] flex items-center justify-center bg-black/60 backdrop-blur-sm">
-    <div class="bg-slate-900 border border-slate-700 rounded-3xl p-8 flex flex-col items-center gap-5 shadow-2xl w-72 text-center animate-pulse-slow">
-      <div class="w-20 h-20 rounded-full bg-indigo-950 border-4 border-indigo-500 flex items-center justify-center text-3xl animate-bounce">
-        📞
+  <!-- Incoming Call Screen (full screen, like native Android) -->
+  <div id="incoming-call-modal" class="hidden fixed inset-0 z-[999] flex flex-col items-center justify-between py-16 px-6"
+       style="background: linear-gradient(160deg, #1a1035 0%, #0f172a 40%, #1a0a0a 100%);">
+    <!-- Top: status -->
+    <div class="flex flex-col items-center gap-2 mt-4">
+      <p class="text-slate-300 text-sm tracking-widest uppercase">Gelen Arama</p>
+    </div>
+
+    <!-- Center: avatar + name -->
+    <div class="flex flex-col items-center gap-4">
+      <div class="w-28 h-28 rounded-full bg-indigo-900/60 border-4 border-indigo-400/50 flex items-center justify-center text-5xl shadow-2xl"
+           style="box-shadow: 0 0 40px rgba(99,102,241,0.4);">
+        🔥
       </div>
-      <div>
-        <p class="text-slate-400 text-sm">Gelen Arama</p>
-        <p id="incoming-caller-name" class="text-white font-bold text-lg mt-1">...</p>
+      <div class="text-center">
+        <h2 id="incoming-caller-name" class="text-white font-bold text-4xl tracking-tight">...</h2>
+        <p class="text-slate-400 text-sm mt-2">Streak Chat Sesli Arama</p>
       </div>
-      <div class="flex gap-6 mt-2">
-        <button onclick="rejectCall()" class="w-14 h-14 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center text-2xl shadow-lg transition">
-          <i class="fa-solid fa-phone-slash"></i>
+    </div>
+
+    <!-- Bottom: accept / reject -->
+    <div class="flex justify-around w-full max-w-xs mb-4">
+      <!-- Reddet -->
+      <div class="flex flex-col items-center gap-2">
+        <button onclick="rejectCall()"
+          class="w-18 h-18 rounded-full flex items-center justify-center shadow-2xl transition active:scale-95"
+          style="width:72px;height:72px;background:#e53935;">
+          <i class="fa-solid fa-phone-slash text-white text-2xl"></i>
         </button>
-        <button onclick="acceptCall()" class="w-14 h-14 rounded-full bg-green-600 hover:bg-green-700 text-white flex items-center justify-center text-2xl shadow-lg transition animate-pulse">
-          <i class="fa-solid fa-phone"></i>
+        <span class="text-slate-400 text-xs">Reddet</span>
+      </div>
+      <!-- Kabul Et -->
+      <div class="flex flex-col items-center gap-2">
+        <button onclick="acceptCall()"
+          class="w-18 h-18 rounded-full flex items-center justify-center shadow-2xl transition active:scale-95"
+          style="width:72px;height:72px;background:#43a047;">
+          <i class="fa-solid fa-phone text-white text-2xl"></i>
         </button>
+        <span class="text-slate-400 text-xs">Kabul Et</span>
       </div>
     </div>
   </div>
 
-  <!-- Active Call Overlay -->
-  <div id="active-call-overlay" class="hidden fixed inset-0 z-[998] flex items-end justify-center pb-8 pointer-events-none">
-    <div class="pointer-events-auto bg-slate-900/95 border border-slate-700 rounded-3xl px-6 py-4 flex items-center gap-4 shadow-2xl backdrop-blur-md">
-      <!-- Green dot + name -->
-      <div class="flex items-center gap-2">
-        <span class="w-2.5 h-2.5 rounded-full bg-green-500 animate-pulse"></span>
-        <span id="call-partner-label" class="text-white text-sm font-semibold">Arama</span>
+  <!-- Active Call Screen (full screen, like native Android) -->
+  <div id="active-call-overlay" class="hidden fixed inset-0 z-[998] flex flex-col items-center justify-between py-12 px-6"
+       style="background: linear-gradient(160deg, #0d1f3c 0%, #0f172a 50%, #0a1a0d 100%);">
+    <!-- Top: status + timer -->
+    <div class="flex flex-col items-center gap-1 mt-6">
+      <p class="text-green-400 text-sm tracking-widest" id="call-status-text">Bağlanıyor...</p>
+      <p id="call-timer" class="text-white font-mono text-lg font-semibold">00:00</p>
+    </div>
+
+    <!-- Center: avatar + name -->
+    <div class="flex flex-col items-center gap-4">
+      <div class="w-28 h-28 rounded-full bg-green-900/40 border-4 border-green-400/40 flex items-center justify-center text-5xl shadow-2xl"
+           style="box-shadow: 0 0 40px rgba(34,197,94,0.25);">
+        🔥
       </div>
-      <!-- Timer -->
-      <span id="call-timer" class="text-green-400 font-mono text-sm">00:00</span>
-      <!-- Controls -->
-      <button id="mute-btn" onclick="toggleMute()" class="w-10 h-10 rounded-full bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center transition" title="Sessiz">
-        <i class="fa-solid fa-microphone text-sm"></i>
-      </button>
-      <button id="speaker-btn" onclick="toggleSpeaker()" class="w-10 h-10 rounded-full bg-slate-700 hover:bg-slate-600 text-white flex items-center justify-center transition" title="Hoparlör">
-        <i class="fa-solid fa-volume-high text-sm"></i>
-      </button>
-      <button onclick="endCall()" class="w-10 h-10 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center transition" title="Aramayı Bitir">
-        <i class="fa-solid fa-phone-slash text-sm"></i>
-      </button>
+      <div class="text-center">
+        <h2 id="call-partner-label" class="text-white font-bold text-4xl tracking-tight">...</h2>
+        <p class="text-slate-400 text-sm mt-2">Streak Chat Sesli Arama</p>
+      </div>
+    </div>
+
+    <!-- Control grid -->
+    <div class="w-full max-w-xs">
+      <div class="grid grid-cols-3 gap-4 mb-8">
+        <!-- Sessiz -->
+        <div class="flex flex-col items-center gap-2">
+          <button id="mute-btn" onclick="toggleMute()"
+            class="w-16 h-16 rounded-2xl flex items-center justify-center transition active:scale-95"
+            style="background:rgba(255,255,255,0.12);">
+            <i class="fa-solid fa-microphone text-white text-xl"></i>
+          </button>
+          <span class="text-slate-400 text-xs">Sessiz</span>
+        </div>
+        <!-- Hoparlör -->
+        <div class="flex flex-col items-center gap-2">
+          <button id="speaker-btn" onclick="toggleSpeaker()"
+            class="w-16 h-16 rounded-2xl flex items-center justify-center transition active:scale-95"
+            style="background:rgba(255,255,255,0.12);">
+            <i class="fa-solid fa-volume-high text-white text-xl"></i>
+          </button>
+          <span class="text-slate-400 text-xs">Hoparlör</span>
+        </div>
+        <!-- Boş / placeholder -->
+        <div class="flex flex-col items-center gap-2">
+          <div class="w-16 h-16 rounded-2xl flex items-center justify-center"
+               style="background:rgba(255,255,255,0.06);">
+            <i class="fa-solid fa-ellipsis text-slate-500 text-xl"></i>
+          </div>
+          <span class="text-slate-600 text-xs">Daha fazla</span>
+        </div>
+      </div>
+
+      <!-- Big red end call button -->
+      <div class="flex justify-center">
+        <div class="flex flex-col items-center gap-2">
+          <button onclick="endCall()"
+            class="w-20 h-20 rounded-full flex items-center justify-center shadow-2xl transition active:scale-95"
+            style="width:80px;height:80px;background:#e53935;box-shadow:0 8px 32px rgba(229,57,53,0.5);">
+            <i class="fa-solid fa-phone-slash text-white text-2xl"></i>
+          </button>
+          <span class="text-slate-400 text-xs">Kapat</span>
+        </div>
+      </div>
     </div>
   </div>
 
   <!-- Hidden audio element for remote stream -->
+
   <audio id="remote-audio" autoplay playsinline></audio>
 
   <!-- ════════════════════════════════════════════ -->
