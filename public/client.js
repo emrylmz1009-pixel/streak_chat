@@ -28,6 +28,7 @@ let isSpeakerOff = false;
 let callTimerInterval = null;
 let callSeconds = 0;
 let isCallInitiator = false;
+let incomingCallChatId = null;
 
 const STUN_SERVERS = {
   iceServers: [
@@ -374,8 +375,9 @@ function initSocket() {
   });
 
   // ── WebRTC Voice Call listeners ──────────────────────────────────
-  socket.on('call-incoming', ({ callerName }) => {
-    document.getElementById('incoming-caller-name').textContent = callerName;
+  socket.on('call-incoming', async ({ chatId, callerName }) => {
+    incomingCallChatId = chatId;
+    document.getElementById('incoming-caller-name').textContent = callerName || 'Anonim';
     document.getElementById('incoming-call-modal').classList.remove('hidden');
     isCallInitiator = false;
     // Play ringing sound
@@ -394,7 +396,8 @@ function initSocket() {
     await setupPeerConnection();
     const offer = await peerConnection.createOffer();
     await peerConnection.setLocalDescription(offer);
-    socket.emit('webrtc-offer', { chatId: activeChat.id, offer });
+    const targetChatId = activeChat ? activeChat.id : incomingCallChatId;
+    socket.emit('webrtc-offer', { chatId: targetChatId, offer });
     showActiveCallUI();
   });
 
@@ -530,17 +533,29 @@ async function startCall() {
 
 async function acceptCall() {
   document.getElementById('incoming-call-modal').classList.add('hidden');
-  socket.emit('call-accept', { chatId: activeChat.id });
-  // Callee waits for webrtc-offer from caller (handled in socket listener above)
+  const targetChatId = activeChat ? activeChat.id : incomingCallChatId;
+  if (targetChatId) {
+    // If not already in that chat, open it
+    if (!activeChat || activeChat.id !== targetChatId) {
+      await selectChat(targetChatId);
+    }
+    socket.emit('call-accept', { chatId: targetChatId });
+  }
 }
 
 function rejectCall() {
   document.getElementById('incoming-call-modal').classList.add('hidden');
-  socket.emit('call-reject', { chatId: activeChat.id });
+  const targetChatId = activeChat ? activeChat.id : incomingCallChatId;
+  if (targetChatId) {
+    socket.emit('call-reject', { chatId: targetChatId });
+  }
 }
 
 function endCall() {
-  if (activeChat) socket.emit('call-end', { chatId: activeChat.id });
+  const targetChatId = activeChat ? activeChat.id : incomingCallChatId;
+  if (targetChatId) {
+    socket.emit('call-end', { chatId: targetChatId });
+  }
   document.getElementById('active-call-overlay').classList.add('hidden');
   cleanupCall();
   showToast('Arama sonlandırıldı 📵');

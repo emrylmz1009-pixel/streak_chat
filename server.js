@@ -507,6 +507,21 @@ app.post('/api/debug/reset', async (req, res) => {
 io.on('connection', (socket) => {
   console.log('Socket connected:', socket.id);
 
+  socket.on('register-user', async ({ userId }) => {
+    if (!userId) return;
+    socket.userId = userId;
+    socket.join(`user_${userId}`);
+    // Auto-join all chats this user belongs to so calls & notifications ring immediately
+    try {
+      const chats = await db.getUserChats(userId);
+      chats.forEach(chat => {
+        socket.join(`chat_${chat.id}`);
+      });
+    } catch(err) {
+      console.error('Error auto-joining chats on register:', err);
+    }
+  });
+
   socket.on('join-chat', ({ chatId }) => {
     socket.join(`chat_${chatId}`);
     console.log(`Socket ${socket.id} joined room chat_${chatId}`);
@@ -597,7 +612,7 @@ io.on('connection', (socket) => {
 
   // ── Voice Call Signaling (WebRTC) ──────────────────────────────
   socket.on('call-initiate', ({ chatId, callerName }) => {
-    socket.to(`chat_${chatId}`).emit('call-incoming', { callerName });
+    socket.to(`chat_${chatId}`).emit('call-incoming', { chatId, callerName });
   });
 
   socket.on('call-accept', ({ chatId }) => {
