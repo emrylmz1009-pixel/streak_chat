@@ -8,73 +8,172 @@ let currentMobileScreen = 'list'; // 'list', 'chat', 'info'
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
-  await initUser();
   window.addEventListener('resize', updateMobileView);
+  await detectIp();
+  await checkAutoLogin();
 });
 
-// User Setup
-async function initUser() {
-  const storedUser = localStorage.getItem('streak_chat_user');
-  if (storedUser) {
-    try {
-      currentUser = JSON.parse(storedUser);
-      // Fetch fresh data from backend
-      await refreshUserProfile();
-      initSocket();
-      await loadChats();
-      updateMobileView();
-    } catch {
-      showProfileSetup();
-    }
-  } else {
-    showProfileSetup();
+// Detect client IP address
+async function detectIp() {
+  try {
+    const res = await fetch('/api/ip');
+    const data = await res.json();
+    document.getElementById('detected-ip-val').innerText = data.ip;
+  } catch (err) {
+    console.error('Error detecting IP:', err);
+    document.getElementById('detected-ip-val').innerText = '127.0.0.1';
   }
 }
 
-function showProfileSetup() {
-  document.getElementById('profile-setup-screen').classList.remove('hidden');
+// Auto-Login Check via IP address
+async function checkAutoLogin() {
+  try {
+    const res = await fetch('/api/auth/auto-login', { method: 'POST' });
+    const data = await res.json();
+    
+    if (data.loggedIn && data.user) {
+      currentUser = data.user;
+      localStorage.setItem('streak_chat_user', JSON.stringify(currentUser));
+      
+      // Successfully auto-logged in, hide screen and init app
+      document.getElementById('auth-screen').classList.add('hidden');
+      renderProfile();
+      initSocket();
+      await loadChats();
+      updateMobileView();
+    } else {
+      // Not logged in by IP, show authentication screen
+      document.getElementById('auth-screen').classList.remove('hidden');
+    }
+  } catch (err) {
+    console.error('Auto-login check failed:', err);
+    document.getElementById('auth-screen').classList.remove('hidden');
+  }
 }
 
-async function handleProfileCreate(event) {
-  event.preventDefault();
-  const nameInput = document.getElementById('setup-username-input');
-  const name = nameInput.value.trim();
+// Switch Login/Register Tabs
+function switchAuthTab(tab) {
+  const loginForm = document.getElementById('login-form');
+  const registerForm = document.getElementById('register-form');
+  const tabLogin = document.getElementById('tab-login');
+  const tabRegister = document.getElementById('tab-register');
+  const errBox = document.getElementById('auth-error-msg');
   
-  if (!name) return;
+  errBox.classList.add('hidden');
+
+  if (tab === 'login') {
+    loginForm.classList.remove('hidden');
+    registerForm.classList.add('hidden');
+    
+    tabLogin.className = 'w-1/2 py-2 text-indigo-400 border-b-2 border-indigo-500 focus:outline-none';
+    tabRegister.className = 'w-1/2 py-2 text-slate-400 hover:text-white border-b-2 border-transparent focus:outline-none';
+  } else {
+    loginForm.classList.add('hidden');
+    registerForm.classList.remove('hidden');
+    
+    tabLogin.className = 'w-1/2 py-2 text-slate-400 hover:text-white border-b-2 border-transparent focus:outline-none';
+    tabRegister.className = 'w-1/2 py-2 text-indigo-400 border-b-2 border-indigo-500 focus:outline-none';
+  }
+}
+
+// Handle Register Form Submission
+async function handleRegisterSubmit(event) {
+  event.preventDefault();
+  const name = document.getElementById('register-name').value.trim();
+  const email = document.getElementById('register-email').value.trim();
+  const password = document.getElementById('register-password').value.trim();
+  const errBox = document.getElementById('auth-error-msg');
+  
+  errBox.classList.add('hidden');
 
   try {
-    const res = await fetch('/api/users/create', {
+    const res = await fetch('/api/auth/register', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name })
+      body: JSON.stringify({ email, name, password })
     });
     
+    const data = await res.json();
     if (!res.ok) {
-      alert('Profil oluşturulurken hata oluştu.');
+      errBox.innerText = data.error || 'Kayıt sırasında hata oluştu.';
+      errBox.classList.remove('hidden');
       return;
     }
 
-    const user = await res.json();
-    currentUser = user;
-    localStorage.setItem('streak_chat_user', JSON.stringify(user));
+    currentUser = data;
+    localStorage.setItem('streak_chat_user', JSON.stringify(currentUser));
     
-    // Hide setup overlay
-    document.getElementById('profile-setup-screen').classList.add('hidden');
-    
-    // Initialize everything else
+    // Hide auth screen and load app
+    document.getElementById('auth-screen').classList.add('hidden');
     renderProfile();
     initSocket();
     await loadChats();
     updateMobileView();
   } catch (err) {
-    console.error('Error creating custom user:', err);
-    alert('Bağlantı hatası oluştu.');
+    console.error('Registration failed:', err);
+    errBox.innerText = 'Bağlantı hatası oluştu.';
+    errBox.classList.remove('hidden');
   }
 }
 
-async function createNewUser() {
-  // Safe fallback if needed, but we now show the setup modal.
-  showProfileSetup();
+// Handle Login Form Submission
+async function handleLoginSubmit(event) {
+  event.preventDefault();
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value.trim();
+  const errBox = document.getElementById('auth-error-msg');
+  
+  errBox.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password })
+    });
+    
+    const data = await res.json();
+    if (!res.ok) {
+      errBox.innerText = data.error || 'Giriş sırasında hata oluştu.';
+      errBox.classList.remove('hidden');
+      return;
+    }
+
+    currentUser = data;
+    localStorage.setItem('streak_chat_user', JSON.stringify(currentUser));
+    
+    // Hide auth screen and load app
+    document.getElementById('auth-screen').classList.add('hidden');
+    renderProfile();
+    initSocket();
+    await loadChats();
+    updateMobileView();
+  } catch (err) {
+    console.error('Login failed:', err);
+    errBox.innerText = 'Bağlantı hatası oluştu.';
+    errBox.classList.remove('hidden');
+  }
+}
+
+// Handle Logout Action
+async function handleLogout() {
+  if (!confirm('Çıkış yapmak istediğinizden emin misiniz? IP otomatik girişiniz temizlenecektir.')) return;
+  
+  try {
+    if (currentUser) {
+      await fetch('/api/auth/logout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: currentUser.id })
+      });
+    }
+  } catch (err) {
+    console.error('Logout API failed:', err);
+  }
+
+  // Clear local storage and reload
+  localStorage.clear();
+  window.location.reload();
 }
 
 async function refreshUserProfile() {
@@ -87,9 +186,8 @@ async function refreshUserProfile() {
       localStorage.setItem('streak_chat_user', JSON.stringify(user));
       renderProfile();
     } else {
-      // User not found in DB (e.g. db was reset)
       localStorage.clear();
-      showProfileSetup();
+      window.location.reload();
     }
   } catch (err) {
     console.error('Error refreshing profile:', err);
@@ -104,7 +202,6 @@ function renderProfile() {
   document.getElementById('user-code-display').innerText = currentUser.code;
   document.getElementById('user-code-header').innerText = currentUser.code;
   document.getElementById('user-freezes-header').innerText = currentUser.streakFreezes;
-  document.getElementById('active-user-freezes').innerText = currentUser.streakFreezes;
   document.getElementById('profile-summary').classList.remove('hidden');
 
   // Render Badges
@@ -121,6 +218,7 @@ function renderProfile() {
       else if (badge === '100-day') badgeLabel = '100 Gün 👑';
       
       badgeElem.innerHTML = badgeLabel;
+      badgesContainer.appendChild(badgeElem);
       badgesContainer.appendChild(badgeElem);
     });
   } else {
@@ -254,19 +352,15 @@ async function selectChat(chatId) {
 
     activeChat = chatObj;
 
-    // Join room
     socket.emit('join-chat', { chatId });
 
-    // Show Chat UI
     document.getElementById('chat-empty-state').classList.add('hidden');
     document.getElementById('chat-active-view').classList.remove('hidden');
     
-    // Header details
     document.getElementById('partner-name').innerText = activeChat.partnerName;
     document.getElementById('partner-code-sub').innerText = `Kod: ${activeChat.partnerCode}`;
     document.getElementById('partner-avatar').innerText = activeChat.partnerName.split(' ').map(n => n[0]).join('');
 
-    // Fetch Messages
     const msgRes = await fetch(`/api/chats/${chatId}/messages`);
     const messages = await msgRes.json();
     
@@ -275,16 +369,9 @@ async function selectChat(chatId) {
     messages.forEach(msg => appendMessage(msg));
     scrollToBottom();
 
-    // Show Right Sidebar Info (handles class updates in updateMobileView)
     document.getElementById('chat-info-panel').classList.remove('hidden');
-
-    // Update streak widget
     updateStreakPanel();
-
-    // Start countdown
     startCountdown();
-
-    // Change screen to chat on mobile
     navigateMobile('chat');
   } catch (err) {
     console.error('Error selecting chat:', err);
@@ -517,14 +604,12 @@ function updateMobileView() {
   const infoPanel = document.getElementById('chat-info-panel');
 
   if (!isMobile) {
-    // Desktop Layout
     sidebar.classList.remove('hidden', 'w-full');
     sidebar.classList.add('flex', 'w-80');
     chatPanel.classList.remove('hidden');
     chatPanel.classList.add('flex');
     
     if (activeChat) {
-      // lg screen handles flex/hidden of infoPanel via tailwind lg:flex, but let's reset custom classes
       infoPanel.classList.remove('w-full', 'flex');
       infoPanel.classList.add('w-80');
     } else {
@@ -534,7 +619,6 @@ function updateMobileView() {
     return;
   }
 
-  // Mobile Layout
   sidebar.classList.remove('w-80');
   sidebar.classList.add('w-full');
   infoPanel.classList.remove('w-80');
@@ -554,7 +638,6 @@ function updateMobileView() {
       chatPanel.classList.remove('hidden');
       chatPanel.classList.add('flex');
     } else {
-      // If no active chat, go back to list
       currentMobileScreen = 'list';
       sidebar.classList.remove('hidden');
       sidebar.classList.add('flex');
@@ -579,7 +662,6 @@ function toggleInfoPanel() {
   if (isMobile) {
     navigateMobile('info');
   } else {
-    // Desktop toggle panel (normally lg:flex toggles automatically, but let's handle md-lg ranges)
     const panel = document.getElementById('chat-info-panel');
     if (panel.classList.contains('hidden')) {
       panel.classList.remove('hidden');
@@ -588,93 +670,6 @@ function toggleInfoPanel() {
       panel.classList.add('hidden');
       panel.classList.remove('flex');
     }
-  }
-}
-
-// --- Debug Panel Actions ---
-
-function toggleDebugPanel() {
-  const panel = document.getElementById('debug-panel-content');
-  const chevron = document.getElementById('debug-chevron');
-  const isHidden = panel.classList.contains('hidden');
-  
-  if (isHidden) {
-    panel.classList.remove('hidden');
-    chevron.className = 'fa-solid fa-chevron-up';
-  } else {
-    panel.classList.add('hidden');
-    chevron.className = 'fa-solid fa-chevron-down';
-  }
-}
-
-async function triggerTimeWarp(hours) {
-  if (!activeChat) return alert('Lütfen önce bir sohbet seçin.');
-  try {
-    const res = await fetch('/api/debug/time-warp', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chatId: activeChat.id, hours })
-    });
-    const data = await res.json();
-    if (data.success) {
-      activeChat = { ...activeChat, ...data.chat };
-      updateStreakPanel();
-      startCountdown();
-      await loadChats();
-      // Reload messages list
-      const msgRes = await fetch(`/api/chats/${activeChat.id}/messages`);
-      const messages = await msgRes.json();
-      const messagesContainer = document.getElementById('messages-container');
-      messagesContainer.innerHTML = '';
-      messages.forEach(msg => appendMessage(msg));
-      scrollToBottom();
-    }
-  } catch (err) {
-    console.error('Error time warping:', err);
-  }
-}
-
-async function grantFreezeDebug() {
-  if (!currentUser) return;
-  try {
-    const res = await fetch('/api/debug/grant-freeze', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: currentUser.id })
-    });
-    const data = await res.json();
-    if (data.success) {
-      await refreshUserProfile();
-    }
-  } catch (err) {
-    console.error('Error granting freeze:', err);
-  }
-}
-
-async function simulatePartnerMessage() {
-  if (!activeChat) return alert('Lütfen önce bir sohbet seçin.');
-  const isUser1 = activeChat.user1Id === currentUser.id;
-  const partnerId = isUser1 ? activeChat.user2Id : activeChat.user1Id;
-  const partnerName = activeChat.partnerName;
-
-  socket.emit('send-message', {
-    chatId: activeChat.id,
-    senderId: partnerId,
-    text: `[SİMÜLASYON] Merhaba! Ben ${partnerName}. Serimizi sürdürmek için yazdım.`
-  });
-}
-
-async function resetDbDebug() {
-  if (!confirm('Tüm veritabanı sıfırlanacak. Emin misiniz?')) return;
-  try {
-    const res = await fetch('/api/debug/reset', { method: 'POST' });
-    if (res.ok) {
-      localStorage.clear();
-      alert('Sistem başarıyla sıfırlandı. Sayfa yenileniyor...');
-      window.location.reload();
-    }
-  } catch (err) {
-    console.error('Error resetting database:', err);
   }
 }
 

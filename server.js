@@ -4,6 +4,7 @@ const socketIo = require('socket.io');
 const path = require('path');
 const db = require('./json-db');
 const streakEngine = require('./streak-engine');
+const crypto = require('crypto');
 
 const app = express();
 const server = http.createServer(app);
@@ -45,6 +46,119 @@ function getRandomAnonName() {
   const anim = animals[Math.floor(Math.random() * animals.length)];
   return `${adj} ${anim}`;
 }
+
+// Helper: Hash password with SHA256
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password).digest('hex');
+}
+
+// Helper: Extract clean IPv4 or IPv6 client IP address
+function getClientIp(req) {
+  let ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress;
+  if (ip && ip.includes('::ffff:')) {
+    ip = ip.split('::ffff:')[1];
+  }
+  if (ip === '::1') {
+    ip = '127.0.0.1';
+  }
+  return ip || '127.0.0.1';
+}
+
+// --- REST API Endpoints ---
+
+// Get detected client IP address
+app.get('/api/ip', (req, res) => {
+  res.json({ ip: getClientIp(req) });
+});
+
+// Auto-Login user by IP Address
+app.post('/api/auth/auto-login', async (req, res) => {
+  try {
+    const ip = getClientIp(req);
+    const user = await db.getUserByIp(ip);
+    if (user) {
+      res.json({ loggedIn: true, user });
+    } else {
+      res.json({ loggedIn: false });
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Register new user
+app.post('/api/auth/register', async (req, res) => {
+  try {
+    const { email, name, password } = req.body;
+    if (!email || !name || !password) {
+      return res.status(400).json({ error: 'Lütfen tüm alanları doldurun.' });
+    }
+
+    const existingUser = await db.getUserByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({ error: 'Bu e-posta adresi zaten kayıtlı.' });
+    }
+
+    const ip = getClientIp(req);
+    const code = await generateUniqueCode();
+    const newUser = {
+      id: 'usr_' + Math.random().toString(36).substr(2, 9),
+      code,
+      name: name.trim(),
+      email: email.trim().toLowerCase(),
+      passwordHash: hashPassword(password),
+      ipAddress: ip,
+      streakFreezes: 2,
+      badges: [],
+      createdAt: new Date().toISOString()
+    };
+
+    await db.saveUser(newUser);
+    res.status(201).json(newUser);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Login user
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: 'E-posta ve şifre gereklidir.' });
+    }
+
+    const user = await db.getUserByEmail(email);
+    if (!user || user.passwordHash !== hashPassword(password)) {
+      return res.status(400).json({ error: 'Hatalı e-posta veya şifre.' });
+    }
+
+    const ip = getClientIp(req);
+    user.ipAddress = ip; // associate this IP address with this user
+    await db.saveUser(user);
+
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Logout user (clears IP association in database)
+app.post('/api/auth/logout', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    if (userId) {
+      const user = await db.getUserById(userId);
+      if (user) {
+        user.ipAddress = ''; // Disassociate IP address
+        await db.saveUser(user);
+      }
+    }
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // REST API Endpoints
 

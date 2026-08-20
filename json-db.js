@@ -65,6 +65,21 @@ class JSONDatabase {
     return users.find(u => u.code.toUpperCase() === cleanCode) || null;
   }
 
+  async getUserByEmail(email) {
+    const users = await this.getUsers();
+    if (!email) return null;
+    const cleanEmail = email.trim().toLowerCase();
+    return users.find(u => u.email && u.email.toLowerCase() === cleanEmail) || null;
+  }
+
+  async getUserByIp(ip) {
+    const users = await this.getUsers();
+    if (!ip) return null;
+    const matchedUsers = users.filter(u => u.ipAddress === ip);
+    if (matchedUsers.length === 0) return null;
+    return matchedUsers[matchedUsers.length - 1];
+  }
+
   async saveUser(user) {
     const users = await this.getUsers();
     const index = users.findIndex(u => u.id === user.id);
