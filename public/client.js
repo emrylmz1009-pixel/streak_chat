@@ -22,6 +22,10 @@ let sidebarHidden = false;
 
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
+  // Detect APK WebView and apply apk-mode class
+  if (navigator.userAgent.includes('StreakChatApp')) {
+    document.body.classList.add('apk-mode');
+  }
   window.addEventListener('resize', updateMobileView);
   checkAdminPersisted();
   checkThemePersisted();
@@ -441,6 +445,9 @@ async function selectChat(chatId) {
     updateStreakPanel();
     startCountdown();
     sidebarHidden = true;
+    if (document.body.classList.contains('apk-mode')) {
+      document.body.classList.add('sidebar-hidden');
+    }
     navigateMobile('chat');
   } catch (err) {
     console.error('Error selecting chat:', err);
@@ -1503,5 +1510,9 @@ function setLayoutMode(mode) {
 
 function toggleSidebar() {
   sidebarHidden = !sidebarHidden;
+  // APK-mode: body class ile CSS slide animasyonu
+  if (document.body.classList.contains('apk-mode')) {
+    document.body.classList.toggle('sidebar-hidden', sidebarHidden);
+  }
   updateMobileView();
 }
