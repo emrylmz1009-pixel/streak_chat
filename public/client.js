@@ -6,6 +6,11 @@ let countdownInterval = null;
 let selectedMediaData = null;
 let currentMobileScreen = 'list'; // 'list', 'chat', 'info'
 
+// Voice Recorder variables
+let mediaRecorder = null;
+let audioChunks = [];
+let isRecording = false;
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', async () => {
   window.addEventListener('resize', updateMobileView);
@@ -283,6 +288,19 @@ function initSocket() {
   socket.on('chat-list-updated', () => {
     loadChats();
   });
+
+  // Self-Destruct trigger real-time handler
+  socket.on('chat-destroyed', (data) => {
+    if (activeChat && data.chatId === activeChat.id) {
+      alert('Bu sohbet odası karşı taraf veya sizin tarafınızdan kalıcı olarak imha edildi!');
+      activeChat = null;
+      document.getElementById('chat-active-view').classList.add('hidden');
+      document.getElementById('chat-info-panel').classList.add('hidden');
+      document.getElementById('chat-empty-state').classList.remove('hidden');
+      loadChats();
+      navigateMobile('list');
+    }
+  });
 }
 
 // Fetch and Render Chats Sidebar
@@ -427,12 +445,11 @@ function handleMediaSelect(event) {
   reader.onload = function (e) {
     selectedMediaData = e.target.result; // Base64 Data URL
     
-    // Render media preview thumbnail
     const previewContainer = document.getElementById('media-preview');
     previewContainer.innerHTML = `
       <div class="relative inline-block m-1">
         <img src="${selectedMediaData}" class="w-16 h-16 object-cover rounded border border-slate-700">
-        <button type="button" onclick="clearSelectedMedia()" class="absolute -top-2 -right-2 bg-red-600 hover:bg-red-700 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] shadow font-bold">
+        <button type="button" onclick="clearSelectedMedia()" class="absolute -top-2 -right-2 bg-red-650 hover:bg-red-750 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px] shadow font-bold">
           <i class="fa-solid fa-times"></i>
         </button>
       </div>
@@ -450,6 +467,93 @@ function clearSelectedMedia() {
   previewContainer.classList.add('hidden');
 }
 
+// Voice Recorder Functions
+async function toggleVoiceRecord() {
+  const btn = document.getElementById('voice-record-btn');
+  const icon = document.getElementById('voice-mic-icon');
+  const textInput = document.getElementById('message-text-input');
+
+  if (!isRecording) {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      audioChunks = [];
+
+      mediaRecorder.ondataavailable = e => {
+        audioChunks.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const audioBlob = new Blob(audioChunks, { type: 'audio/mp3' });
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const base64Audio = e.target.result;
+          
+          socket.emit('send-message', {
+            chatId: activeChat.id,
+            senderId: currentUser.id,
+            text: '🎤 Sesli Not',
+            mediaUrl: base64Audio,
+            isAudio: true
+          });
+        };
+        reader.readAsDataURL(audioBlob);
+
+        // Stop all track media
+        stream.getTracks().forEach(track => track.stop());
+      };
+
+      mediaRecorder.start();
+      isRecording = true;
+      icon.className = 'fa-solid fa-circle-stop text-red-500 animate-pulse';
+      textInput.placeholder = 'Sesiniz kaydediliyor... Durdurmak için tıklayın.';
+      textInput.disabled = true;
+    } catch (err) {
+      alert('Mikrofon erişimi engellendi veya hata oluştu: ' + err.message);
+      console.error(err);
+    }
+  } else {
+    if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+      mediaRecorder.stop();
+    }
+    isRecording = false;
+    icon.className = 'fa-solid fa-microphone text-lg';
+    textInput.placeholder = 'Bir mesaj yazın...';
+    textInput.disabled = false;
+  }
+}
+
+// Destroy Chat Permanently
+async function destroyChat() {
+  if (!activeChat) return;
+  if (!confirm('DİKKAT! Bu sohbet odası ve tüm mesaj geçmişi kalıcı olarak silinecektir. Geri alınamaz! Emin misiniz?')) return;
+
+  try {
+    const res = await fetch(`/api/chats/${activeChat.id}/destroy`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: currentUser.id })
+    });
+    
+    const data = await res.json();
+    if (data.success) {
+      // Local state reset
+      activeChat = null;
+      document.getElementById('chat-active-view').classList.add('hidden');
+      document.getElementById('chat-info-panel').classList.add('hidden');
+      document.getElementById('chat-empty-state').classList.remove('hidden');
+      await loadChats();
+      navigateMobile('list');
+      alert('Sohbet imha edildi.');
+    } else {
+      alert('Sohbet imha edilirken hata oluştu.');
+    }
+  } catch (err) {
+    console.error('Error destroying chat:', err);
+    alert('Bağlantı hatası oluştu.');
+  }
+}
+
 // Send Message
 function sendMessage(event) {
   event.preventDefault();
@@ -464,7 +568,8 @@ function sendMessage(event) {
     chatId: activeChat.id,
     senderId: currentUser.id,
     text: text || '',
-    mediaUrl: selectedMediaData
+    mediaUrl: selectedMediaData,
+    isAudio: false
   };
 
   socket.emit('send-message', messageData);
@@ -508,14 +613,21 @@ function appendMessage(msg) {
 
     let mediaHtml = '';
     if (msg.mediaUrl) {
-      mediaHtml = `
-        <div class="mb-2 max-w-[200px] md:max-w-xs overflow-hidden rounded-lg">
-          <img src="${msg.mediaUrl}" alt="Media attachment" class="w-full object-cover">
-        </div>
-      `;
+      if (msg.isAudio) {
+        mediaHtml = `
+          <div class="mb-2 max-w-xs">
+            <audio src="${msg.mediaUrl}" controls class="w-full h-8 outline-none rounded bg-slate-950 border border-slate-800"></audio>
+          </div>
+        `;
+      } else {
+        mediaHtml = `
+          <div class="mb-2 max-w-[200px] md:max-w-xs overflow-hidden rounded-lg">
+            <img src="${msg.mediaUrl}" alt="Media attachment" class="w-full object-cover">
+          </div>
+        `;
+      }
     }
 
-    // Render message body only if text is not empty
     let textHtml = msg.text ? `<div>${escapeHTML(msg.text)}</div>` : '';
 
     msgEl.innerHTML = `

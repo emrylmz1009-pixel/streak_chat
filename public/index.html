@@ -2,7 +2,7 @@
 <html lang="tr">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
   <title>Anonim Streak Sohbet</title>
   <!-- Tailwind CSS CDN -->
   <script src="https://cdn.tailwindcss.com"></script>
@@ -28,8 +28,8 @@
 <body class="bg-slate-950 text-slate-100 h-screen h-[100dvh] overflow-hidden flex flex-col font-sans">
 
   <!-- Auth Screen (Login / Register Screen) -->
-  <div id="auth-screen" class="fixed inset-0 bg-slate-950 flex flex-col items-center justify-center p-6 text-center z-50 hidden">
-    <div class="bg-slate-900 border border-slate-800 p-8 rounded-2xl max-w-md w-full shadow-2xl flex flex-col gap-4">
+  <div id="auth-screen" class="fixed inset-0 bg-slate-950 overflow-y-auto flex flex-col items-center justify-start md:justify-center p-4 md:p-6 text-center z-50 hidden">
+    <div class="my-auto bg-slate-900 border border-slate-800 p-6 md:p-8 rounded-2xl max-w-sm w-full shadow-2xl flex flex-col gap-3 md:gap-4">
       
       <!-- IP Badge -->
       <div class="bg-indigo-950/60 text-indigo-400 text-xs px-3.5 py-1.5 rounded-full border border-indigo-900 inline-flex items-center justify-center gap-1.5 mx-auto font-mono">
@@ -265,8 +265,8 @@
 
         <!-- Chat Input Form -->
         <form id="chat-input-form" onsubmit="sendMessage(event)" 
-              class="p-3 pb-5 md:pb-4 bg-slate-900 border-t border-slate-800 flex flex-col gap-2 shrink-0" 
-              style="padding-bottom: calc(16px + env(safe-area-inset-bottom));">
+              class="p-3 pb-6 md:pb-4 bg-slate-900 border-t border-slate-800 flex flex-col gap-2 shrink-0" 
+              style="padding-bottom: calc(20px + env(safe-area-inset-bottom));">
           
           <!-- Hidden file input for actual media upload -->
           <input type="file" id="media-file-input" accept="image/*" class="hidden" onchange="handleMediaSelect(event)">
@@ -277,8 +277,14 @@
           </div>
 
           <div class="flex gap-2 items-center w-full">
+            <!-- Actual Image Share -->
             <button type="button" onclick="document.getElementById('media-file-input').click()" class="text-slate-400 hover:text-white p-2" title="Fotoğraf Gönder">
               <i class="fa-regular fa-image text-lg"></i>
+            </button>
+            
+            <!-- Voice Message Recorder Button -->
+            <button type="button" id="voice-record-btn" onclick="toggleVoiceRecord()" class="text-slate-400 hover:text-red-500 p-2" title="Sesli Not Gönder">
+              <i class="fa-solid fa-microphone text-lg" id="voice-mic-icon"></i>
             </button>
             
             <input type="text" id="message-text-input" placeholder="Bir mesaj yazın..." oninput="emitTyping()"
@@ -355,6 +361,17 @@
             <br><span class="text-slate-400 mt-1 block">Her 7 günlük seride ikiniz de +1 Buz kazanırsınız.</span>
           </div>
         </div>
+      </div>
+
+      <!-- Destruct Chat Card -->
+      <div class="p-5 border-b border-slate-800">
+        <h3 class="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3">Güvenlik ve Gizlilik</h3>
+        <button onclick="destroyChat()" class="w-full bg-red-950/60 hover:bg-red-950 border border-red-900 text-red-400 py-2 rounded font-bold text-xs transition flex items-center justify-center gap-1">
+          <i class="fa-solid fa-bomb"></i> Sohbeti Kalıcı Olarak İmha Et
+        </button>
+        <p class="text-[10px] text-slate-500 mt-1.5 text-center leading-relaxed">
+          Bu işlem sohbet geçmişini ve bağlantıyı her iki taraf için veritabanından kalıcı olarak siler.
+        </p>
       </div>
 
       <!-- Secret Admin/Debug Section (Shown only after entering code "admin1803") -->

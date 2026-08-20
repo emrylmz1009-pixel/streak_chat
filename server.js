@@ -313,6 +313,41 @@ app.get('/api/chats/:chatId/messages', async (req, res) => {
   }
 });
 
+// Destroy/Self-Destruct Chat Permanently
+app.post('/api/chats/:chatId/destroy', async (req, res) => {
+  try {
+    const { chatId } = req.params;
+    const { userId } = req.body;
+
+    const chat = await db.getChatById(chatId);
+    if (!chat) return res.status(404).json({ error: 'Sohbet bulunamadı.' });
+
+    if (chat.user1Id !== userId && chat.user2Id !== userId) {
+      return res.status(403).json({ error: 'Yetkisiz işlem.' });
+    }
+
+    // Remove chat from database
+    const chats = await db.getChats();
+    const updatedChats = chats.filter(c => c.id !== chatId);
+    await db.queueWrite('chats', updatedChats);
+
+    // Remove messages from database
+    const messages = await db.readTable('messages');
+    const updatedMessages = messages.filter(m => m.chatId !== chatId);
+    await db.queueWrite('messages', updatedMessages);
+
+    // Emit real-time notification to chat room
+    io.to(`chat_${chatId}`).emit('chat-destroyed', { chatId });
+    
+    // Emit global event to refresh sidebar lists
+    io.emit('chat-list-updated');
+
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Debug: Time Warp
 app.post('/api/debug/time-warp', async (req, res) => {
   try {
