@@ -511,12 +511,21 @@ async function startCall() {
   if (!activeChat) return;
   if (peerConnection) { showToast('Zaten aktif bir arama var!'); return; }
   isCallInitiator = true;
-  // Just signal — wait for accept before creating offer
+  
+  // Arayan tarafında da hemen tam ekran arama menüsünü aç
+  const overlay = document.getElementById('active-call-overlay');
+  overlay.classList.remove('hidden');
+  document.getElementById('call-partner-label').textContent =
+    document.getElementById('partner-name').textContent || 'Partner';
+  const statusEl = document.getElementById('call-status-text');
+  if (statusEl) statusEl.textContent = 'Aranıyor...';
+  document.getElementById('call-timer').textContent = 'Çalıyor...';
+
   socket.emit('call-initiate', {
     chatId: activeChat.id,
     callerName: currentUser.name || 'Anonim'
   });
-  showToast('📞 Arama isteği gönderildi...');
+  showToast('📞 Aranıyor...');
 }
 
 async function acceptCall() {

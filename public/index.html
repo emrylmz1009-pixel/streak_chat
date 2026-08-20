@@ -195,6 +195,20 @@
       max-width: 82% !important;
     }
 
+    /* APK-mode call screens (Gelen/Aktif Arama) her zaman en üstte tam ekran */
+    body.apk-mode #incoming-call-modal,
+    body.apk-mode #active-call-overlay {
+      position: fixed !important;
+      inset: 0 !important;
+      width: 100vw !important;
+      height: 100dvh !important;
+      z-index: 99999 !important;
+    }
+    #incoming-call-modal,
+    #active-call-overlay {
+      z-index: 99999 !important;
+    }
+
     /* APK-mode chat header: butonlar görünür kalsın */
     body.apk-mode #chat-active-view > div:first-child {
       overflow: visible !important;
