@@ -1,38 +1,38 @@
 [
   {
-    "id": "sys_970gqzn2z",
+    "id": "sys_wyr6xn39n",
     "chatId": "chat_t1",
     "senderId": "system",
     "text": "Day completed! Streak is now 1 days. Keep it up! 🔥",
     "mediaUrl": null,
     "isSystem": true,
-    "timestamp": "2026-08-20T08:58:18.504Z"
+    "timestamp": "2026-08-20T09:13:02.793Z"
   },
   {
-    "id": "sys_3w1rsv67d",
+    "id": "sys_yuw7lhc1d",
     "chatId": "chat_t1",
     "senderId": "system",
     "text": "Day completed! Streak is now 7 days. Keep it up! 🔥\nMilestone reached! +1 Streak Freeze ❄️ awarded to both users.\nNew Badge Unlocked! Streak Starter 🚀 earned! 🎉",
     "mediaUrl": null,
     "isSystem": true,
-    "timestamp": "2026-08-20T08:58:18.516Z"
+    "timestamp": "2026-08-20T09:13:02.806Z"
   },
   {
-    "id": "sys_0h2nmkvnd",
+    "id": "sys_zgm91mk6j",
     "chatId": "chat_t1",
     "senderId": "system",
     "text": "Streak preserved! ❄️ A Streak Freeze was used automatically for Anon Cat to keep your 7-day streak alive.",
     "mediaUrl": null,
     "isSystem": true,
-    "timestamp": "2026-08-20T08:58:18.526Z"
+    "timestamp": "2026-08-20T09:13:02.814Z"
   },
   {
-    "id": "sys_mzvbv8tl5",
+    "id": "sys_pjnb0udyc",
     "chatId": "chat_t1",
     "senderId": "system",
     "text": "Streak broken! 💔 The 24-hour cycle ended without messages from both sides. Your streak has been reset to 0.",
     "mediaUrl": null,
     "isSystem": true,
-    "timestamp": "2026-08-20T08:58:18.538Z"
+    "timestamp": "2026-08-20T09:13:02.829Z"
   }
 ]
