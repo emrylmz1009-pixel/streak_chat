@@ -511,11 +511,12 @@ io.on('connection', (socket) => {
     if (!userId) return;
     socket.userId = userId;
     socket.join(`user_${userId}`);
-    // Auto-join all chats this user belongs to so calls & notifications ring immediately
+    // Auto-join all chats this user belongs to so calls ring on any screen
     try {
-      const chats = await db.getUserChats(userId);
+      const chats = await db.getChatsForUser(userId);
       chats.forEach(chat => {
         socket.join(`chat_${chat.id}`);
+        console.log(`User ${userId} auto-joined chat_${chat.id}`);
       });
     } catch(err) {
       console.error('Error auto-joining chats on register:', err);
